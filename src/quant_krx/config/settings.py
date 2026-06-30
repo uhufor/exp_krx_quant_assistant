@@ -5,6 +5,19 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+ALL_STRATEGIES = [
+    "ma_crossover",
+    "rsi_breakout",
+    "bollinger_band",
+    "macd",
+    "momentum",
+]
+
+
+class StrategyConfig(BaseSettings):
+    enabled: list[str] = Field(default_factory=lambda: list(ALL_STRATEGIES))
+
+
 class WatchlistConfig(BaseSettings):
     symbols: list[str] = Field(default_factory=list)
     market: str = "KRX"
@@ -48,6 +61,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
+        populate_by_name=True,
     )
 
     duckdb_path: str = Field(default="data/quant_krx.duckdb", alias="DUCKDB_PATH")
@@ -60,6 +74,7 @@ class Settings(BaseSettings):
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    strategy: StrategyConfig = Field(default_factory=StrategyConfig)
 
     def load_watchlist(self) -> list[str]:
         path = Path(self.watchlist_path)

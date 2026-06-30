@@ -26,13 +26,18 @@ def extract_metrics(
     mdd = float(abs(pf.max_drawdown()))
 
     # Sharpe / Sortino (연간화)
+    # trade_count=0이면 모든 수익률=0 → std=0 → inf 반환 → nan으로 처리
     try:
         sharpe = float(pf.sharpe_ratio())
+        if not np.isfinite(sharpe):
+            sharpe = float("nan")
     except Exception as e:
         logger.warning(f"Sharpe 추출 실패: {e}")
         sharpe = float("nan")
     try:
         sortino = float(pf.sortino_ratio())
+        if not np.isfinite(sortino):
+            sortino = float("nan")
     except Exception as e:
         logger.warning(f"Sortino 추출 실패: {e}")
         sortino = float("nan")

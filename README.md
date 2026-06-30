@@ -82,18 +82,83 @@ market: KRX
 uv run python -m quant_krx validate-config
 ```
 
+## 전략
+
+| 이름 | 유형 | 핵심 아이디어 |
+|------|------|--------------|
+| `ma_crossover` | 추세 추종 | 단기(20일)/장기(60일) MA 골든·데드크로스 |
+| `rsi_breakout` | 역추세 | RSI 30 이하 매수 / 70 이상 매도 |
+| `bollinger_band` | 평균 회귀 | 가격이 밴드(MA ± 2σ) 이탈 시 신호 |
+| `macd` | 모멘텀 | 12/26 EMA 차이의 9일 시그널선 교차 |
+| `momentum` | 중장기 추세 | 12-1개월 가격 모멘텀 (Jegadeesh & Titman) |
+
+기본적으로 5개 전략 모두 활성화됩니다.
+
 ## 사용법
+
+### 전략 목록 확인
+
+```bash
+uv run python -m quant_krx list-strategies
+```
 
 ### Dry-run (알림 없이 테스트)
 
 ```bash
+# 전체 전략 실행
 LLM_MOCK=true uv run python -m quant_krx run-daily --dry-run
+
+# 특정 전략만 선택 (콤마 구분)
+LLM_MOCK=true uv run python -m quant_krx run-daily --dry-run --strategies ma_crossover,macd
 ```
 
 ### 실제 실행 (Telegram 발송)
 
 ```bash
 uv run python -m quant_krx run-daily --no-dry-run
+
+# 특정 전략만
+uv run python -m quant_krx run-daily --no-dry-run --strategies bollinger_band,momentum
+```
+
+### 상시 비활성화 (설정 파일)
+
+`.env` 에 원하는 전략만 지정하면 `--strategies` 없이도 해당 전략만 실행됩니다:
+
+```env
+# .env
+ENABLED_STRATEGIES=["ma_crossover","macd","bollinger_band"]
+```
+
+### 결과 리포트 조회
+
+`run-daily` 실행 후 종목별 신호와 리포트를 콘솔에 출력합니다.
+
+```bash
+# 최근 실행 결과 조회 (Report A, 기본)
+uv run python -m quant_krx show-reports
+
+# Report B 조회 (LLM 해석 포함)
+uv run python -m quant_krx show-reports --type B
+
+# Report A + B 모두 조회
+uv run python -m quant_krx show-reports --type all
+
+# 특정 run_id 조회
+uv run python -m quant_krx show-reports --run-id 20260630-e5284252
+```
+
+출력 예시:
+
+```
+                         신호 요약
+┏━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━┳━━━━━━━━━┳━━━━━━━┳━━━━━━━━┓
+┃ 종목   ┃ 전략        ┃ 신호  ┃ 점수 ┃ 총수익률 ┃  MDD  ┃ Sharpe ┃
+┡━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━╇━━━━━━━━━╇━━━━━━━╇━━━━━━━━┩
+│ 105190 │ ma_crossover│ BUY   │ 0.95 │  284.6% │ 20.8% │   2.69 │
+│ 042700 │ ma_crossover│ SELL  │ 0.31 │  100.7% │ 38.1% │   1.05 │
+│ 380550 │ ma_crossover│ WATCH │ 0.00 │  -33.2% │ 40.3% │  -1.08 │
+└────────┴─────────────┴───────┴──────┴─────────┴───────┴────────┘
 ```
 
 ### 설정 확인

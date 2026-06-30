@@ -36,8 +36,9 @@ class StrategyRunner:
         if run_id is None:
             run_id = f"{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:8]}"
         results = []
-        for _sym, ohlcv in ohlcv_map.items():
+        for sym, ohlcv in ohlcv_map.items():
             for strategy in strategies:
                 result = strategy.run(ohlcv, benchmark, fees, slippage, run_id)
+                result.symbol = sym
                 results.append(result)
         return results

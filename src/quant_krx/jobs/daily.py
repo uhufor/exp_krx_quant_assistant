@@ -9,7 +9,22 @@ from typing import TYPE_CHECKING, Any
 from quant_krx.config.settings import Settings
 from quant_krx.data.base import DataProvider
 from quant_krx.llm import create_provider
-from quant_krx.quant import MACrossoverStrategy, RSIBreakoutStrategy, StrategyRunner
+from quant_krx.quant import (
+    BollingerBandStrategy,
+    MACDStrategy,
+    MACrossoverStrategy,
+    MomentumStrategy,
+    RSIBreakoutStrategy,
+    StrategyRunner,
+)
+
+_STRATEGY_REGISTRY = {
+    "ma_crossover": lambda: MACrossoverStrategy(short_window=20, long_window=60),
+    "rsi_breakout": lambda: RSIBreakoutStrategy(rsi_window=14, oversold=30.0, overbought=70.0),
+    "bollinger_band": lambda: BollingerBandStrategy(window=20, num_std=2.0),
+    "macd": lambda: MACDStrategy(fast=12, slow=26, signal=9),
+    "momentum": lambda: MomentumStrategy(lookback_days=252, skip_days=21),
+}
 from quant_krx.reports import ReportARenderer, ReportBRenderer, ReportInput
 from quant_krx.signals import SignalClassifier
 from quant_krx.storage.db import Database
@@ -63,7 +78,12 @@ class DailyJob:
         )
         self._report_b = ReportBRenderer(llm=self._llm)
 
-    def run(self, dry_run: bool = False, as_of: date | None = None) -> DailyJobResult:
+    def run(
+        self,
+        dry_run: bool = False,
+        as_of: date | None = None,
+        enabled_strategies: list[str] | None = None,
+    ) -> DailyJobResult:
         run_id = f"{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:8]}"
         result = DailyJobResult(run_id=run_id, started_at=datetime.utcnow())
         as_of = as_of or date.today()
@@ -79,7 +99,7 @@ class DailyJob:
 
             # 1. 데이터 수집 + 검증
             end = as_of
-            start = end - timedelta(days=365 * 2)  # 2년 히스토리
+            start = end - timedelta(days=365 * 5)  # 5년 히스토리
 
             ohlcv_map: dict[str, Any] = {}
             benchmark_df = None
@@ -97,6 +117,8 @@ class DailyJob:
                     if not issues:
                         vr = self._validator.validate(sym, data.df, as_of=as_of)
                         if vr.ok:
+                            for w in vr.warnings:
+                                logger.warning(f"[{sym}] {w}")
                             self._db.upsert_ohlcv(
                                 sym, data.df, data.meta.source_name, data.meta.fetched_at
                             )
@@ -114,10 +136,14 @@ class DailyJob:
             self._db.log_event(run_id, "fetch_done", f"{len(ohlcv_map)}/{len(symbols)} 종목 수집")
 
             # 2. 퀀트 전략 실행
+            enabled = enabled_strategies or self._settings.strategy.enabled
             strategies = [
-                MACrossoverStrategy(short_window=20, long_window=60),
-                RSIBreakoutStrategy(rsi_window=14, oversold=30.0, overbought=70.0),
+                _STRATEGY_REGISTRY[name]()
+                for name in enabled
+                if name in _STRATEGY_REGISTRY
             ]
+            if not strategies:
+                raise ValueError(f"활성화된 전략이 없습니다. enabled={enabled}")
             backtest_results = self._runner.run_batch(
                 strategies, ohlcv_map, benchmark_df, run_id=run_id
             )

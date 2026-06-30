@@ -25,7 +25,7 @@
   },
   "build": {
     "buildCommand": null,
-    "testCommand": "cat > .gitignore << 'EOF'\n# =============================================================================\n# Python\n# =============================================================================\n__pycache__/\n*.py[cod]\n*.pyd\n*.so\n*.egg-info/\n.venv/\ndist/\nbuild/\n\n# =============================================================================\n# 도구 캐시\n# =============================================================================\n.pytest_cache/\n.mypy_cache/\n.ruff_cache/\n\n# =============================================================================\n# 런타임 / 데이터\n# =============================================================================\n# DuckDB 데이터베이스 (data/ 구조는 유지, 실제 DB 파일만 제외)\ndata/*.duckdb\ndata/*.duckdb.wal\n\n# 일별 리포트 출력물\nreports/\n\n# 로그\nlogs/\n\n# =============================================================================\n# 설정 / 비밀키\n# =============================================================================\n.env\n# watchlist는 개인 설정 — 샘플(watchlist.yaml.example)만 커밋\nconfig/watchlist.yaml\n\n# =============================================================================\n# macOS\n# =============================================================================\n.DS_Store\n.AppleDouble\n\n# =============================================================================\n# IDE\n# =============================================================================\n.vscode/\n.idea/\n*.swp\n*.swo\n\n# =============================================================================\n# OMC (oh-my-claudecode) 운영 상태 파일\n# .omc/skills/** 는 프로젝트 스킬로 커밋 대상\n# =============================================================================\n.omc/state/\n.omc/sessions/\n.omc/logs/\n.omc/artifacts/\n.omc/notepad.md\nEOF",
+    "testCommand": "uv run pytest tests/ -q 2>&1 | tail -5",
     "lintCommand": "ruff check",
     "devCommand": null,
     "scripts": {}
@@ -121,27 +121,45 @@
   },
   "hotPaths": [
     {
+      "path": "src/quant_krx/jobs/daily.py",
+      "accessCount": 17,
+      "lastAccessed": 1782839430230,
+      "type": "file"
+    },
+    {
       "path": "src/quant_krx/storage/db.py",
       "accessCount": 10,
       "lastAccessed": 1782831611442,
       "type": "file"
     },
     {
-      "path": "src/quant_krx/jobs/daily.py",
-      "accessCount": 10,
-      "lastAccessed": 1782832695243,
+      "path": "src/quant_krx/quant/runner.py",
+      "accessCount": 8,
+      "lastAccessed": 1782835370258,
       "type": "file"
     },
     {
-      "path": "src/quant_krx/quant/runner.py",
-      "accessCount": 6,
-      "lastAccessed": 1782831525801,
+      "path": "src/quant_krx/__main__.py",
+      "accessCount": 8,
+      "lastAccessed": 1782838212004,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/config/settings.py",
+      "accessCount": 7,
+      "lastAccessed": 1782838170538,
       "type": "file"
     },
     {
       "path": "src/quant_krx/notify/telegram.py",
       "accessCount": 6,
       "lastAccessed": 1782831610980,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/quant/metrics.py",
+      "accessCount": 6,
+      "lastAccessed": 1782838711380,
       "type": "file"
     },
     {
@@ -163,21 +181,15 @@
       "type": "file"
     },
     {
-      "path": "src/quant_krx/quant/metrics.py",
-      "accessCount": 4,
-      "lastAccessed": 1782831612925,
-      "type": "file"
-    },
-    {
       "path": "tests/integration/test_daily_job.py",
-      "accessCount": 4,
-      "lastAccessed": 1782831613332,
+      "accessCount": 5,
+      "lastAccessed": 1782835471245,
       "type": "file"
     },
     {
-      "path": "src/quant_krx/config/settings.py",
-      "accessCount": 3,
-      "lastAccessed": 1782831296585,
+      "path": "src/quant_krx/storage/validation.py",
+      "accessCount": 4,
+      "lastAccessed": 1782839424804,
       "type": "file"
     },
     {
@@ -187,15 +199,15 @@
       "type": "file"
     },
     {
-      "path": "src/quant_krx/__main__.py",
-      "accessCount": 3,
-      "lastAccessed": 1782832690489,
-      "type": "file"
-    },
-    {
       "path": "src/quant_krx/quant/base.py",
       "accessCount": 3,
       "lastAccessed": 1782832696031,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 3,
+      "lastAccessed": 1782838476286,
       "type": "file"
     },
     {
@@ -235,21 +247,33 @@
       "type": "file"
     },
     {
+      "path": "src/quant_krx/data/fdr_adapter.py",
+      "accessCount": 2,
+      "lastAccessed": 1782834326815,
+      "type": "file"
+    },
+    {
+      "path": "config/watchlist.yaml",
+      "accessCount": 2,
+      "lastAccessed": 1782835252730,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/quant/strategies/__init__.py",
+      "accessCount": 2,
+      "lastAccessed": 1782838158676,
+      "type": "file"
+    },
+    {
+      "path": "tests/unit/test_validation.py",
+      "accessCount": 2,
+      "lastAccessed": 1782839461095,
+      "type": "file"
+    },
+    {
       "path": "src/quant_krx/reports/base.py",
       "accessCount": 1,
       "lastAccessed": 1782757175582,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/data/fdr_adapter.py",
-      "accessCount": 1,
-      "lastAccessed": 1782757176507,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/storage/validation.py",
-      "accessCount": 1,
-      "lastAccessed": 1782757177495,
       "type": "file"
     },
     {
@@ -268,6 +292,42 @@
       "path": "tests/integration/test_storage.py",
       "accessCount": 1,
       "lastAccessed": 1782757308042,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/quant/strategies/ma_crossover.py",
+      "accessCount": 1,
+      "lastAccessed": 1782837364565,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/quant/strategies/rsi_breakout.py",
+      "accessCount": 1,
+      "lastAccessed": 1782837364581,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/quant/strategies/bollinger.py",
+      "accessCount": 1,
+      "lastAccessed": 1782838120654,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/quant/strategies/macd.py",
+      "accessCount": 1,
+      "lastAccessed": 1782838130768,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/quant/strategies/momentum.py",
+      "accessCount": 1,
+      "lastAccessed": 1782838138435,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/quant/__init__.py",
+      "accessCount": 1,
+      "lastAccessed": 1782838160976,
       "type": "file"
     }
   ],

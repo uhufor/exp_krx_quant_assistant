@@ -13,11 +13,11 @@ def validator():
 
 @pytest.fixture
 def good_df():
-    dates = pd.bdate_range("2024-01-02", periods=20)
+    dates = pd.bdate_range("2024-01-02", periods=70)
     return pd.DataFrame({
         "date": [d.date() for d in dates],
-        "close": [50000.0 + i * 100 for i in range(20)],
-        "volume": [1000000] * 20,
+        "close": [50000.0 + i * 100 for i in range(70)],
+        "volume": [1000000] * 70,
     })
 
 
@@ -25,7 +25,33 @@ def test_valid_data(validator, good_df):
     result = validator.validate("005930", good_df)
     assert result.ok
     assert result.issues == []
-    assert result.row_count == 20
+    assert result.row_count == 70
+
+
+def test_short_history_error(validator):
+    """MIN_TRADING_DAYS(60일) 미만이면 오류."""
+    dates = pd.bdate_range("2024-01-02", periods=30)
+    short_df = pd.DataFrame({
+        "date": [d.date() for d in dates],
+        "close": [50000.0 + i * 100 for i in range(30)],
+        "volume": [1000000] * 30,
+    })
+    result = validator.validate("NEW", short_df)
+    assert not result.ok
+    assert any("히스토리 부족" in i for i in result.issues)
+
+
+def test_short_history_warning(validator):
+    """MIN_TRADING_DAYS(60일) 이상, FULL_STRATEGY_DAYS(273일) 미만이면 경고."""
+    dates = pd.bdate_range("2024-01-02", periods=150)
+    mid_df = pd.DataFrame({
+        "date": [d.date() for d in dates],
+        "close": [50000.0 + i * 100 for i in range(150)],
+        "volume": [1000000] * 150,
+    })
+    result = validator.validate("MID", mid_df)
+    assert result.ok
+    assert any("짧은 히스토리" in w for w in result.warnings)
 
 
 def test_empty_df(validator):
