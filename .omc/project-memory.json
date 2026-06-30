@@ -25,7 +25,7 @@
   },
   "build": {
     "buildCommand": null,
-    "testCommand": "uv run pytest tests/ -q 2>&1 | tail -5",
+    "testCommand": "uv run pytest tests/ -q 2>&1 | tail -3 && uv run python -c \"\nfrom quant_krx.config.settings import NotifyConfig, LLMConfig, Settings\nnc = NotifyConfig()\nlc = LLMConfig()\nprint('NotifyConfig.model_config[env_file]:', nc.model_config.get('env_file'))\nprint('LLMConfig.model_config[env_file]:', lc.model_config.get('env_file'))\ns = Settings()\nprint('settings.notify.telegram_bot_token:', repr(s.notify.telegram_bot_token[:10] + '...' if s.notify.telegram_bot_token else '(비어있음)'))\n\" 2>&1",
     "lintCommand": "ruff check",
     "devCommand": null,
     "scripts": {}
@@ -133,6 +133,12 @@
       "type": "file"
     },
     {
+      "path": "src/quant_krx/config/settings.py",
+      "accessCount": 9,
+      "lastAccessed": 1782840934017,
+      "type": "file"
+    },
+    {
       "path": "src/quant_krx/quant/runner.py",
       "accessCount": 8,
       "lastAccessed": 1782835370258,
@@ -142,12 +148,6 @@
       "path": "src/quant_krx/__main__.py",
       "accessCount": 8,
       "lastAccessed": 1782838212004,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/config/settings.py",
-      "accessCount": 7,
-      "lastAccessed": 1782838170538,
       "type": "file"
     },
     {

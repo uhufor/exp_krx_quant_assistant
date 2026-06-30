@@ -13,23 +13,35 @@ ALL_STRATEGIES = [
     "momentum",
 ]
 
+# 네스티드 BaseSettings 공통 설정 — env_file을 지정해야 .env를 읽을 수 있음
+_NESTED_CONFIG = SettingsConfigDict(
+    env_file=".env",
+    env_file_encoding="utf-8",
+    extra="ignore",
+    populate_by_name=True,
+)
+
 
 class StrategyConfig(BaseSettings):
+    model_config = _NESTED_CONFIG
     enabled: list[str] = Field(default_factory=lambda: list(ALL_STRATEGIES))
 
 
 class WatchlistConfig(BaseSettings):
+    model_config = _NESTED_CONFIG
     symbols: list[str] = Field(default_factory=list)
     market: str = "KRX"
 
 
 class ProviderConfig(BaseSettings):
+    model_config = _NESTED_CONFIG
     primary: str = "fdr"  # "fdr" | "pykrx"
     fallback: str = "pykrx"
     cache_days: int = 1  # 캐시 유효 기간 (거래일)
 
 
 class EvaluationProfile(BaseSettings):
+    model_config = _NESTED_CONFIG
     name: str = "balanced"  # "balanced" | "aggressive" | "conservative" | "research"
     mdd_threshold: float = 0.30  # MDD > 30% → risk_flag
     sharpe_min: float = 0.5
@@ -37,18 +49,21 @@ class EvaluationProfile(BaseSettings):
 
 
 class SchedulerConfig(BaseSettings):
+    model_config = _NESTED_CONFIG
     timezone: str = "Asia/Seoul"
     run_hour: int = 16  # 오후 4시 (장 마감 후)
     run_minute: int = 0
 
 
 class NotifyConfig(BaseSettings):
+    model_config = _NESTED_CONFIG
     channel: str = "telegram"
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     telegram_chat_id: str = Field(default="", alias="TELEGRAM_CHAT_ID")
 
 
 class LLMConfig(BaseSettings):
+    model_config = _NESTED_CONFIG
     provider: str = "anthropic"  # "anthropic" | "openai"
     model: str = "claude-sonnet-4-6"
     mock: bool = Field(default=False, alias="LLM_MOCK")
