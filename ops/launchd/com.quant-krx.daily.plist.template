@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.quant-krx.daily</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <!-- REPLACE: /path/to/uv 를 `which uv` 결과로 교체 -->
+        <string>/opt/homebrew/bin/uv</string>
+        <string>run</string>
+        <string>--project</string>
+        <!-- REPLACE: /path/to/quant-krx 를 프로젝트 경로로 교체 -->
+        <string>__PROJECT_DIR__</string>
+        <string>python</string>
+        <string>-m</string>
+        <string>quant_krx</string>
+        <string>run-daily</string>
+        <string>--no-dry-run</string>
+    </array>
+
+    <!-- Asia/Seoul 기준 15:35 KST = UTC 06:35 -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>6</integer>
+        <key>Minute</key>
+        <integer>35</integer>
+    </dict>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <!-- REPLACE: 실제 홈 디렉토리로 교체 -->
+        <string>__HOME_DIR__</string>
+        <key>ANTHROPIC_API_KEY</key>
+        <!-- REPLACE: 실제 API 키로 교체 또는 .env 파일 경로 지정 -->
+        <string>__ANTHROPIC_API_KEY__</string>
+        <key>TELEGRAM_BOT_TOKEN</key>
+        <string>__TELEGRAM_BOT_TOKEN__</string>
+        <key>TELEGRAM_CHAT_ID</key>
+        <string>__TELEGRAM_CHAT_ID__</string>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>__PROJECT_DIR__</string>
+
+    <key>StandardOutPath</key>
+    <string>__PROJECT_DIR__/logs/launchd.stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>__PROJECT_DIR__/logs/launchd.stderr.log</string>
+
+    <!-- 실패 시 재시작 안 함 (알림 중복 방지) -->
+    <key>KeepAlive</key>
+    <false/>
+
+    <!-- macOS 절전 후 놓친 실행은 깨어난 후 즉시 실행 -->
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

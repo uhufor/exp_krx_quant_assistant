@@ -1,0 +1,275 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1782756936374,
+  "projectRoot": "/Users/uhufor/develop/step/quant-krx",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Python",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "pyproject.toml"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "pytest",
+        "version": null,
+        "category": "testing"
+      }
+    ],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": "cat > .gitignore << 'EOF'\n# =============================================================================\n# Python\n# =============================================================================\n__pycache__/\n*.py[cod]\n*.pyd\n*.so\n*.egg-info/\n.venv/\ndist/\nbuild/\n\n# =============================================================================\n# 도구 캐시\n# =============================================================================\n.pytest_cache/\n.mypy_cache/\n.ruff_cache/\n\n# =============================================================================\n# 런타임 / 데이터\n# =============================================================================\n# DuckDB 데이터베이스 (data/ 구조는 유지, 실제 DB 파일만 제외)\ndata/*.duckdb\ndata/*.duckdb.wal\n\n# 일별 리포트 출력물\nreports/\n\n# 로그\nlogs/\n\n# =============================================================================\n# 설정 / 비밀키\n# =============================================================================\n.env\n# watchlist는 개인 설정 — 샘플(watchlist.yaml.example)만 커밋\nconfig/watchlist.yaml\n\n# =============================================================================\n# macOS\n# =============================================================================\n.DS_Store\n.AppleDouble\n\n# =============================================================================\n# IDE\n# =============================================================================\n.vscode/\n.idea/\n*.swp\n*.swo\n\n# =============================================================================\n# OMC (oh-my-claudecode) 운영 상태 파일\n# .omc/skills/** 는 프로젝트 스킬로 커밋 대상\n# =============================================================================\n.omc/state/\n.omc/sessions/\n.omc/logs/\n.omc/artifacts/\n.omc/notepad.md\nEOF",
+    "lintCommand": "ruff check",
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "src",
+      "tests"
+    ],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "config": {
+      "path": "config",
+      "purpose": "Configuration files",
+      "fileCount": 1,
+      "lastAccessed": 1782756936363,
+      "keyFiles": [
+        "watchlist.yaml"
+      ]
+    },
+    "data": {
+      "path": "data",
+      "purpose": "Data files",
+      "fileCount": 1,
+      "lastAccessed": 1782756936363,
+      "keyFiles": []
+    },
+    "logs": {
+      "path": "logs",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1782756936363,
+      "keyFiles": []
+    },
+    "old-base-v1": {
+      "path": "old-base-v1",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1782756936363,
+      "keyFiles": []
+    },
+    "ops": {
+      "path": "ops",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1782756936363,
+      "keyFiles": [
+        "setup.sh"
+      ]
+    },
+    "reports": {
+      "path": "reports",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1782756936363,
+      "keyFiles": []
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 0,
+      "lastAccessed": 1782756936364,
+      "keyFiles": []
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 1,
+      "lastAccessed": 1782756936364,
+      "keyFiles": [
+        "__init__.py"
+      ]
+    },
+    "tests/fixtures": {
+      "path": "tests/fixtures",
+      "purpose": "Test fixtures",
+      "fileCount": 1,
+      "lastAccessed": 1782756936364,
+      "keyFiles": [
+        "sample_ohlcv.csv"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "src/quant_krx/storage/db.py",
+      "accessCount": 10,
+      "lastAccessed": 1782831611442,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/jobs/daily.py",
+      "accessCount": 10,
+      "lastAccessed": 1782832695243,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/quant/runner.py",
+      "accessCount": 6,
+      "lastAccessed": 1782831525801,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/notify/telegram.py",
+      "accessCount": 6,
+      "lastAccessed": 1782831610980,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/storage/schema.py",
+      "accessCount": 5,
+      "lastAccessed": 1782831610050,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/reports/report_b.py",
+      "accessCount": 5,
+      "lastAccessed": 1782831612322,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/signals/classifier.py",
+      "accessCount": 5,
+      "lastAccessed": 1782831641808,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/quant/metrics.py",
+      "accessCount": 4,
+      "lastAccessed": 1782831612925,
+      "type": "file"
+    },
+    {
+      "path": "tests/integration/test_daily_job.py",
+      "accessCount": 4,
+      "lastAccessed": 1782831613332,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/config/settings.py",
+      "accessCount": 3,
+      "lastAccessed": 1782831296585,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/llm/factory.py",
+      "accessCount": 3,
+      "lastAccessed": 1782831648251,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/__main__.py",
+      "accessCount": 3,
+      "lastAccessed": 1782832690489,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/quant/base.py",
+      "accessCount": 3,
+      "lastAccessed": 1782832696031,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/llm/anthropic_provider.py",
+      "accessCount": 2,
+      "lastAccessed": 1782757248251,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/notify/outbox.py",
+      "accessCount": 2,
+      "lastAccessed": 1782757262461,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/llm/base.py",
+      "accessCount": 2,
+      "lastAccessed": 1782831226363,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/storage/__init__.py",
+      "accessCount": 2,
+      "lastAccessed": 1782831580008,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/data/base.py",
+      "accessCount": 2,
+      "lastAccessed": 1782832695630,
+      "type": "file"
+    },
+    {
+      "path": "CLAUDE.md",
+      "accessCount": 2,
+      "lastAccessed": 1782833097897,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/reports/base.py",
+      "accessCount": 1,
+      "lastAccessed": 1782757175582,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/data/fdr_adapter.py",
+      "accessCount": 1,
+      "lastAccessed": 1782757176507,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/storage/validation.py",
+      "accessCount": 1,
+      "lastAccessed": 1782757177495,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/config/profiles.py",
+      "accessCount": 1,
+      "lastAccessed": 1782757187400,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/llm/openai_provider.py",
+      "accessCount": 1,
+      "lastAccessed": 1782757187940,
+      "type": "file"
+    },
+    {
+      "path": "tests/integration/test_storage.py",
+      "accessCount": 1,
+      "lastAccessed": 1782757308042,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

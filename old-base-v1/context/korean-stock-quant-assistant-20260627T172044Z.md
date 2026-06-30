@@ -1,0 +1,34 @@
+# Deep Interview Context Snapshot: Korean Stock Quant Assistant
+
+- Task statement: Build a stock assistant for Korean equities based on quant trading theory.
+- Desired outcome: Daily notifications that summarize buy/sell signals for selected stocks or themes using historical Korean stock data, quant processing/backtesting, and an LLM explanation layer.
+- Stated solution: Acquire Korean stock information, use VectorBT as the quant trading/backtesting engine, feed refined data into an LLM, and deliver daily buy/sell signal alerts.
+- Probable intent hypothesis: The user wants a practical decision-support system that reduces manual market screening and turns quantitative signals into understandable daily actions.
+- Known facts/evidence:
+  - User is uncertain about the right architecture and wants unnecessary or wrong assumptions challenged.
+  - User specifically mentioned Korean equities, selected stocks or themes, historical data, VectorBT, LLM-based signal interpretation, and daily alerts.
+  - Repository inspection found no application source files, README, docs, or existing architecture. Treat as greenfield.
+- Constraints:
+  - Must account for Korean stock data availability and quality.
+  - Must distinguish quantitative signal generation from LLM explanation.
+  - Must avoid overstating financial advice unless the user explicitly accepts that risk and scope.
+  - No implementation should occur during deep-interview mode.
+- Unknowns/open questions:
+  - Whether this should be a personal decision-support tool, semi-automated trading aid, or production-grade alerting product.
+  - Which data source is acceptable for Korean equities.
+  - Which asset universe, strategies, risk controls, and notification channels are in scope.
+  - Whether LLM should explain signals only or participate in signal generation.
+  - What legal/compliance guardrails and disclaimers are required.
+- Decision-boundary unknowns:
+  - What the system may decide autonomously versus what must remain human-reviewed.
+  - Whether OMX may choose architecture, data provider, strategy templates, and deployment shape without further confirmation.
+- Likely codebase touchpoints:
+  - None yet. Expected future touchpoints: data ingestion, strategy/backtest engine, signal scoring, LLM summarization, scheduler, notification delivery, configuration, tests.
+- Relevant repo docs/rules/context inspected:
+  - Workspace file scan via `rg --files`: no source/docs found.
+  - `find .. -name AGENTS.md`: no repo-local AGENTS.md found.
+  - Existing `.omx/` runtime state only.
+- Terminology or doc/code conflicts found:
+  - None from repository evidence.
+  - User term "매도, 매수 시그널" needs boundary clarification: advisory signal vs executable trade instruction.
+- Prompt-safe initial-context summary status: not_needed.
