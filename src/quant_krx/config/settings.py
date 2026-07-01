@@ -1,9 +1,10 @@
+import json
 from pathlib import Path
+from typing import Annotated
 
 import yaml
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 ALL_STRATEGIES = [
     "ma_crossover",
@@ -24,7 +25,19 @@ _NESTED_CONFIG = SettingsConfigDict(
 
 class StrategyConfig(BaseSettings):
     model_config = _NESTED_CONFIG
-    enabled: list[str] = Field(default_factory=lambda: list(ALL_STRATEGIES))
+    enabled: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: list(ALL_STRATEGIES), alias="ENABLED_STRATEGIES"
+    )
+
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def _parse_comma_separated(cls, v: object) -> object:
+        if isinstance(v, str):
+            try:
+                return json.loads(v)  # 기존 JSON 배열 형식 (예: ["ma_crossover","macd"]) 호환
+            except json.JSONDecodeError:
+                return [s.strip() for s in v.split(",") if s.strip()]
+        return v
 
 
 class WatchlistConfig(BaseSettings):

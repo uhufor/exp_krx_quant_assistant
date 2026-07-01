@@ -9,6 +9,7 @@
 - **Report A**: 순수 퀀트 결과 기반 결정론적 리포트 (LLM 없음)
 - **Report B**: 동일 신호 + LLM 컨텍스트 보조 리포트
 - **균형 평가**: MDD, Sharpe, 초과수익률, 최근 기간 수익률 종합 평가
+- **종목별/리포트별 개별 메시지**: 종목마다, Report A/B마다 별도 Telegram 메시지로 발송 (종목명 병기, 예: `380550 - 뉴로핏`)
 - **Exactly-once 알림**: durable outbox로 중복 발송 방지
 - **Mac mini 자동 실행**: launchd로 매일 장 마감 후 자동 실행
 
@@ -126,8 +127,9 @@ uv run python -m quant_krx run-daily --no-dry-run --strategies bollinger_band,mo
 `.env` 에 원하는 전략만 지정하면 `--strategies` 없이도 해당 전략만 실행됩니다:
 
 ```env
-# .env
-ENABLED_STRATEGIES=["ma_crossover","macd","bollinger_band"]
+# .env — 콤마 구분 또는 JSON 배열 형식 모두 지원
+ENABLED_STRATEGIES=ma_crossover,macd,bollinger_band
+# ENABLED_STRATEGIES=["ma_crossover","macd","bollinger_band"]
 ```
 
 ### 결과 리포트 조회

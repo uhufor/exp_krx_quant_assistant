@@ -48,27 +48,29 @@ class FDRAdapter:
         return self.fetch_ohlcv(ticker, start, end)
 
     def fetch_metadata(self, symbols: list[str]) -> dict[str, dict]:
-        try:
-            df = fdr.StockListing("KRX")
+        result = {s: {"symbol": s} for s in symbols}
+        remaining = set(symbols)
+
+        for market in ("KRX", "ETF/KR"):
+            if not remaining:
+                break
+            try:
+                df = fdr.StockListing(market)
+            except Exception:
+                continue
             code_col = next((c for c in df.columns if c in ("Code", "Symbol", "종목코드")), None)
             name_col = next((c for c in df.columns if c in ("Name", "종목명")), None)
-            if code_col is None:
-                return {}
-            result = {}
-            for sym in symbols:
-                row = df[df[code_col].astype(str).str.zfill(6) == sym]
-                if row.empty:
-                    result[sym] = {"symbol": sym}
-                else:
-                    r = row.iloc[0].to_dict()
-                    result[sym] = {
-                        "symbol": sym,
-                        "name": str(r.get(name_col, "")) if name_col else "",
-                        "source": self.source_name,
-                    }
-            return result
-        except Exception:
-            return {s: {"symbol": s} for s in symbols}
+            if code_col is None or name_col is None:
+                continue
+            codes = df[code_col].astype(str).str.zfill(6)
+            for sym in list(remaining):
+                row = df[codes == sym]
+                if not row.empty:
+                    name = str(row.iloc[0][name_col])
+                    result[sym] = {"symbol": sym, "name": name, "source": self.source_name}
+                    remaining.discard(sym)
+
+        return result
 
     def _normalize(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()

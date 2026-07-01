@@ -21,6 +21,7 @@ def _rsi(close: pd.Series, window: int = 14) -> pd.Series:
 @dataclass
 class RSIBreakoutStrategy:
     name: str = "rsi_breakout"
+    display_name: str = "RSI 과매도·과매수"
     rsi_window: int = 14
     oversold: float = 30.0
     overbought: float = 70.0
@@ -75,6 +76,7 @@ class RSIBreakoutStrategy:
         return BacktestResult(
             symbol=symbol,
             strategy_name=self.name,
+            strategy_display_name=self.display_name,
             params=self.params,
             start=close.index[0].date(),
             end=close.index[-1].date(),

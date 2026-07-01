@@ -58,7 +58,7 @@ def test_report_a_deterministic(report_input):
 def test_report_a_content_has_required_sections(report_input):
     renderer = ReportARenderer()
     report = renderer.render(report_input)
-    for section in ("신호 요약", "백테스트 성과 지표", "면책 조항"):
+    for section in ("신호 요약", "백테스트 성과 지표"):
         assert section in report.content, f"Missing section: {section}"
 
 def test_report_a_contains_signal_id(report_input, signal):

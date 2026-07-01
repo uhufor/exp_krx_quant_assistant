@@ -27,6 +27,7 @@ class Signal:
     signal_date: date
     signal_type: SignalType
     strategy_name: str
+    strategy_display_name: str
     score: float                          # 0.0~1.0, 높을수록 강한 신호
     position_recommendation: str          # 사람이 읽을 수 있는 권고 문구
     evidence_metrics: BacktestMetrics
@@ -41,6 +42,7 @@ class Signal:
             "signal_date": self.signal_date.isoformat(),
             "signal_type": self.signal_type.value,
             "strategy_name": self.strategy_name,
+            "strategy_display_name": self.strategy_display_name,
             "score": self.score,
             "position_recommendation": self.position_recommendation,
             "risk_flags": self.risk_flags,
@@ -129,6 +131,7 @@ class SignalClassifier:
             signal_date=signal_date,
             signal_type=signal_type,
             strategy_name=result.strategy_name,
+            strategy_display_name=result.strategy_display_name,
             score=round(score, 4),
             position_recommendation=recommendation,
             evidence_metrics=m,

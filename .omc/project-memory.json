@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1782756936374,
+  "lastScanned": 1782907326497,
   "projectRoot": "/Users/uhufor/develop/step/quant-krx",
   "techStack": {
     "languages": [
@@ -25,7 +25,7 @@
   },
   "build": {
     "buildCommand": null,
-    "testCommand": "uv run pytest tests/ -q 2>&1 | tail -3 && uv run python -c \"\nfrom quant_krx.config.settings import NotifyConfig, LLMConfig, Settings\nnc = NotifyConfig()\nlc = LLMConfig()\nprint('NotifyConfig.model_config[env_file]:', nc.model_config.get('env_file'))\nprint('LLMConfig.model_config[env_file]:', lc.model_config.get('env_file'))\ns = Settings()\nprint('settings.notify.telegram_bot_token:', repr(s.notify.telegram_bot_token[:10] + '...' if s.notify.telegram_bot_token else '(비어있음)'))\n\" 2>&1",
+    "testCommand": "uv run pytest tests/ -q 2>&1 | tail -15",
     "lintCommand": "ruff check",
     "devCommand": null,
     "scripts": {}
@@ -43,7 +43,10 @@
       "src",
       "tests"
     ],
-    "gitBranches": null
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
   },
   "customNotes": [],
   "directoryMap": {
@@ -51,7 +54,7 @@
       "path": "config",
       "purpose": "Configuration files",
       "fileCount": 1,
-      "lastAccessed": 1782756936363,
+      "lastAccessed": 1782907326482,
       "keyFiles": [
         "watchlist.yaml"
       ]
@@ -59,29 +62,31 @@
     "data": {
       "path": "data",
       "purpose": "Data files",
-      "fileCount": 1,
-      "lastAccessed": 1782756936363,
-      "keyFiles": []
+      "fileCount": 2,
+      "lastAccessed": 1782907326482,
+      "keyFiles": [
+        "quant_krx.duckdb"
+      ]
     },
     "logs": {
       "path": "logs",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1782756936363,
+      "lastAccessed": 1782907326482,
       "keyFiles": []
     },
     "old-base-v1": {
       "path": "old-base-v1",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1782756936363,
+      "lastAccessed": 1782907326482,
       "keyFiles": []
     },
     "ops": {
       "path": "ops",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1782756936363,
+      "lastAccessed": 1782907326482,
       "keyFiles": [
         "setup.sh"
       ]
@@ -90,21 +95,21 @@
       "path": "reports",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1782756936363,
+      "lastAccessed": 1782907326483,
       "keyFiles": []
     },
     "src": {
       "path": "src",
       "purpose": "Source code",
       "fileCount": 0,
-      "lastAccessed": 1782756936364,
+      "lastAccessed": 1782907326483,
       "keyFiles": []
     },
     "tests": {
       "path": "tests",
       "purpose": "Test files",
       "fileCount": 1,
-      "lastAccessed": 1782756936364,
+      "lastAccessed": 1782907326483,
       "keyFiles": [
         "__init__.py"
       ]
@@ -113,7 +118,7 @@
       "path": "tests/fixtures",
       "purpose": "Test fixtures",
       "fileCount": 1,
-      "lastAccessed": 1782756936364,
+      "lastAccessed": 1782907326486,
       "keyFiles": [
         "sample_ohlcv.csv"
       ]
@@ -121,27 +126,51 @@
   },
   "hotPaths": [
     {
-      "path": "src/quant_krx/jobs/daily.py",
-      "accessCount": 17,
-      "lastAccessed": 1782839430230,
+      "path": "src/quant_krx/reports/report_b.py",
+      "accessCount": 36,
+      "lastAccessed": 1782921951428,
       "type": "file"
     },
     {
-      "path": "src/quant_krx/storage/db.py",
-      "accessCount": 10,
-      "lastAccessed": 1782831611442,
+      "path": "src/quant_krx/reports/report_a.py",
+      "accessCount": 27,
+      "lastAccessed": 1782921931580,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/jobs/daily.py",
+      "accessCount": 25,
+      "lastAccessed": 1782921958679,
       "type": "file"
     },
     {
       "path": "src/quant_krx/config/settings.py",
-      "accessCount": 9,
-      "lastAccessed": 1782840934017,
+      "accessCount": 16,
+      "lastAccessed": 1782910823872,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/notify/telegram.py",
+      "accessCount": 11,
+      "lastAccessed": 1782910159795,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/storage/db.py",
+      "accessCount": 11,
+      "lastAccessed": 1782912185319,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/signals/classifier.py",
+      "accessCount": 10,
+      "lastAccessed": 1782921144541,
       "type": "file"
     },
     {
       "path": "src/quant_krx/quant/runner.py",
-      "accessCount": 8,
-      "lastAccessed": 1782835370258,
+      "accessCount": 9,
+      "lastAccessed": 1782921029111,
       "type": "file"
     },
     {
@@ -151,9 +180,15 @@
       "type": "file"
     },
     {
-      "path": "src/quant_krx/notify/telegram.py",
-      "accessCount": 6,
-      "lastAccessed": 1782831610980,
+      "path": "src/quant_krx/reports/base.py",
+      "accessCount": 8,
+      "lastAccessed": 1782912206744,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 8,
+      "lastAccessed": 1782920661814,
       "type": "file"
     },
     {
@@ -164,20 +199,8 @@
     },
     {
       "path": "src/quant_krx/storage/schema.py",
-      "accessCount": 5,
-      "lastAccessed": 1782831610050,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/reports/report_b.py",
-      "accessCount": 5,
-      "lastAccessed": 1782831612322,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/signals/classifier.py",
-      "accessCount": 5,
-      "lastAccessed": 1782831641808,
+      "accessCount": 6,
+      "lastAccessed": 1782921065114,
       "type": "file"
     },
     {
@@ -187,9 +210,51 @@
       "type": "file"
     },
     {
+      "path": "src/quant_krx/data/fdr_adapter.py",
+      "accessCount": 5,
+      "lastAccessed": 1782920253381,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/quant/base.py",
+      "accessCount": 5,
+      "lastAccessed": 1782921085388,
+      "type": "file"
+    },
+    {
       "path": "src/quant_krx/storage/validation.py",
       "accessCount": 4,
       "lastAccessed": 1782839424804,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/quant/strategies/ma_crossover.py",
+      "accessCount": 4,
+      "lastAccessed": 1782921094273,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/quant/strategies/rsi_breakout.py",
+      "accessCount": 4,
+      "lastAccessed": 1782921103606,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/quant/strategies/bollinger.py",
+      "accessCount": 4,
+      "lastAccessed": 1782921112291,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/quant/strategies/macd.py",
+      "accessCount": 4,
+      "lastAccessed": 1782921119342,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/quant/strategies/momentum.py",
+      "accessCount": 4,
+      "lastAccessed": 1782921131039,
       "type": "file"
     },
     {
@@ -199,27 +264,27 @@
       "type": "file"
     },
     {
-      "path": "src/quant_krx/quant/base.py",
+      "path": "src/quant_krx/notify/outbox.py",
       "accessCount": 3,
-      "lastAccessed": 1782832696031,
+      "lastAccessed": 1782908554918,
       "type": "file"
     },
     {
-      "path": "README.md",
+      "path": "src/quant_krx/data/base.py",
       "accessCount": 3,
-      "lastAccessed": 1782838476286,
+      "lastAccessed": 1782910696312,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/llm/mock_provider.py",
+      "accessCount": 3,
+      "lastAccessed": 1782921530304,
       "type": "file"
     },
     {
       "path": "src/quant_krx/llm/anthropic_provider.py",
       "accessCount": 2,
       "lastAccessed": 1782757248251,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/notify/outbox.py",
-      "accessCount": 2,
-      "lastAccessed": 1782757262461,
       "type": "file"
     },
     {
@@ -235,21 +300,9 @@
       "type": "file"
     },
     {
-      "path": "src/quant_krx/data/base.py",
-      "accessCount": 2,
-      "lastAccessed": 1782832695630,
-      "type": "file"
-    },
-    {
       "path": "CLAUDE.md",
       "accessCount": 2,
       "lastAccessed": 1782833097897,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/data/fdr_adapter.py",
-      "accessCount": 2,
-      "lastAccessed": 1782834326815,
       "type": "file"
     },
     {
@@ -271,9 +324,15 @@
       "type": "file"
     },
     {
-      "path": "src/quant_krx/reports/base.py",
-      "accessCount": 1,
-      "lastAccessed": 1782757175582,
+      "path": "tests/unit/test_reports.py",
+      "accessCount": 2,
+      "lastAccessed": 1782914353572,
+      "type": "file"
+    },
+    {
+      "path": "tests/unit/test_signals.py",
+      "accessCount": 2,
+      "lastAccessed": 1782921184974,
       "type": "file"
     },
     {
@@ -295,39 +354,21 @@
       "type": "file"
     },
     {
-      "path": "src/quant_krx/quant/strategies/ma_crossover.py",
-      "accessCount": 1,
-      "lastAccessed": 1782837364565,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/quant/strategies/rsi_breakout.py",
-      "accessCount": 1,
-      "lastAccessed": 1782837364581,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/quant/strategies/bollinger.py",
-      "accessCount": 1,
-      "lastAccessed": 1782838120654,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/quant/strategies/macd.py",
-      "accessCount": 1,
-      "lastAccessed": 1782838130768,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/quant/strategies/momentum.py",
-      "accessCount": 1,
-      "lastAccessed": 1782838138435,
-      "type": "file"
-    },
-    {
       "path": "src/quant_krx/quant/__init__.py",
       "accessCount": 1,
       "lastAccessed": 1782838160976,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/data/fixture_adapter.py",
+      "accessCount": 1,
+      "lastAccessed": 1782910695776,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/data/pykrx_adapter.py",
+      "accessCount": 1,
+      "lastAccessed": 1782910696059,
       "type": "file"
     }
   ],

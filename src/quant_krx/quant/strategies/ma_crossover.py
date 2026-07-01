@@ -13,6 +13,7 @@ from quant_krx.quant.metrics import extract_metrics
 @dataclass
 class MACrossoverStrategy:
     name: str = "ma_crossover"
+    display_name: str = "이동평균 교차 (20/60일)"
     short_window: int = 20
     long_window: int = 60
 
@@ -63,6 +64,7 @@ class MACrossoverStrategy:
         return BacktestResult(
             symbol=symbol,
             strategy_name=self.name,
+            strategy_display_name=self.display_name,
             params=self.params,
             start=close.index[0].date(),
             end=close.index[-1].date(),

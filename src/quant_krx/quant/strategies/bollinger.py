@@ -19,6 +19,7 @@ class BollingerBandStrategy:
     """
 
     name: str = "bollinger_band"
+    display_name: str = "볼린저 밴드"
     window: int = 20
     num_std: float = 2.0
 
@@ -65,6 +66,7 @@ class BollingerBandStrategy:
         return BacktestResult(
             symbol="UNKNOWN",
             strategy_name=self.name,
+            strategy_display_name=self.display_name,
             params=self.params,
             start=close.index[0].date(),
             end=close.index[-1].date(),

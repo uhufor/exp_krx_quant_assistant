@@ -63,20 +63,19 @@ class TelegramNotifier:
         return succeeded
 
     def _send_via_api(self, text: str) -> None:
-        """실제 Telegram API 호출 (동기, urllib 사용)."""
+        """실제 Telegram API 호출 (동기, urllib 사용). text는 Telegram HTML 포맷."""
         import json
         import urllib.parse
         import urllib.request
 
         url = f"https://api.telegram.org/bot{self._token}/sendMessage"
-        # 4096자 Telegram 제한: 줄 경계로 청크 분할
         chunks = self._split_on_lines(text, 4000)
         for chunk in chunks:
             data = urllib.parse.urlencode(
                 {
                     "chat_id": self._chat_id,
                     "text": chunk,
-                    "parse_mode": "Markdown",
+                    "parse_mode": "HTML",
                 }
             ).encode()
             req = urllib.request.Request(url, data=data)

@@ -20,6 +20,7 @@ class MomentumStrategy:
     """
 
     name: str = "momentum"
+    display_name: str = "12개월 모멘텀"
     lookback_days: int = 252   # 12개월 (약 252 거래일)
     skip_days: int = 21        # 최근 1개월 제외 (단기 반전 효과 회피)
 
@@ -64,6 +65,7 @@ class MomentumStrategy:
         return BacktestResult(
             symbol="UNKNOWN",
             strategy_name=self.name,
+            strategy_display_name=self.display_name,
             params=self.params,
             start=close.index[0].date(),
             end=close.index[-1].date(),

@@ -76,6 +76,7 @@ def test_high_mdd_adds_risk_flag():
     result = BacktestResult(
         symbol="TEST",
         strategy_name="test",
+        strategy_display_name="테스트 전략",
         params={},
         start=date(2024, 1, 2),
         end=date(2024, 12, 31),

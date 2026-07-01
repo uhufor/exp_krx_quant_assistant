@@ -19,6 +19,7 @@ class MACDStrategy:
     """
 
     name: str = "macd"
+    display_name: str = "MACD 시그널 교차"
     fast: int = 12
     slow: int = 26
     signal: int = 9
@@ -66,6 +67,7 @@ class MACDStrategy:
         return BacktestResult(
             symbol="UNKNOWN",
             strategy_name=self.name,
+            strategy_display_name=self.display_name,
             params=self.params,
             start=close.index[0].date(),
             end=close.index[-1].date(),

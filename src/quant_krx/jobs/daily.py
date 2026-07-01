@@ -135,6 +135,12 @@ class DailyJob:
 
             self._db.log_event(run_id, "fetch_done", f"{len(ohlcv_map)}/{len(symbols)} 종목 수집")
 
+            try:
+                ticker_metadata = self._provider.fetch_metadata(symbols)
+            except Exception as e:
+                logger.warning(f"종목 메타데이터 조회 실패: {e}")
+                ticker_metadata = {}
+
             # 2. 퀀트 전략 실행
             enabled = enabled_strategies or self._settings.strategy.enabled
             strategies = [
@@ -156,30 +162,33 @@ class DailyJob:
                 self._db.insert_signal(sig.to_dict())
             self._db.log_event(run_id, "signal_done", f"{len(signals)} 신호")
 
-            # 4. 리포트 생성 + 저장
-            report_contents: list[str] = []
+            # 4. 리포트 생성 + 저장 (Report A/B 각각 개별 메시지로 발송)
+            telegram_messages: list[str] = []
+            msg_seq = 1
             for sig in signals:
-                inp = ReportInput(signal=sig)
-                ra = self._report_a.render(inp)
-                rb = self._report_b.render(inp)
+                inp = ReportInput(signal=sig, ticker_metadata=ticker_metadata.get(sig.symbol, {}))
+                ra = self._report_a.render(inp, seq=msg_seq)
+                msg_seq += 1
+                rb = self._report_b.render(inp, seq=msg_seq)
+                msg_seq += 1
                 self._db.insert_report(sig.id, "A", ra.content, run_id)
                 self._db.insert_report(sig.id, "B", rb.content, run_id)
                 result.report_a_count += 1
                 result.report_b_count += 1
-                report_contents.append(ra.content)
-                report_contents.append(f"\n---\n{rb.content}")
-
-            combined = "\n\n---\n\n".join(report_contents)
+                telegram_messages.append(ra.telegram_content)
+                telegram_messages.append(rb.telegram_content)
 
             self._db.log_event(
                 run_id, "report_done",
                 f"A={result.report_a_count}, B={result.report_b_count}",
             )
 
-            # 5. 알림 발송
-            if combined and not dry_run and self._notifier:
-                nid = self._notifier.send(run_id, combined)
-                result.notification_ids.append(nid)
+            # 5. 알림 발송 (Report A/B 각각 별도 메시지)
+            if telegram_messages and not dry_run and self._notifier:
+                for msg in telegram_messages:
+                    nid = self._notifier.send(run_id, msg)
+                    result.notification_ids.append(nid)
+                logger.info(f"[{run_id}] Telegram 발송: {len(telegram_messages)}개 메시지")
             elif dry_run:
                 logger.info(f"[{run_id}] dry_run: 알림 생략 ({len(signals)}개 신호 처리됨)")
 

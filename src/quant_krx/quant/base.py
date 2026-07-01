@@ -27,6 +27,7 @@ class BacktestMetrics:
 class BacktestResult:
     symbol: str
     strategy_name: str
+    strategy_display_name: str
     params: dict[str, Any]
     start: date
     end: date
@@ -37,7 +38,8 @@ class BacktestResult:
 
 
 class Strategy(Protocol):
-    name: str
+    name: str              # 내부 식별 키 (예: "ma_crossover")
+    display_name: str      # 사용자 친화적 표시 이름 (예: "이동평균 교차 (20/60일)")
     params: dict[str, Any]
 
     def run(
