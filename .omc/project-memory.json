@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1782907326497,
+  "lastScanned": 1783161679228,
   "projectRoot": "/Users/uhufor/develop/step/quant-krx",
   "techStack": {
     "languages": [
@@ -25,7 +25,7 @@
   },
   "build": {
     "buildCommand": null,
-    "testCommand": "uv run pytest tests/ -q 2>&1 | tail -15",
+    "testCommand": "uv run python /private/tmp/claude-501/-Users-uhufor-develop-step-quant-krx/d49e288b-fcd8-4572-8edc-cce0290d26be/scratchpad/verify_benchmark_note.py 2>&1 | grep -E \"OK|벤치마크 행|초과수익률 행|^\\||^벤치마크|^- |모든\" && uv run pytest tests/ -q 2>&1 | tail -1 && uv run ruff check src/quant_krx/quant/ src/quant_krx/reports/ src/quant_krx/signals/ 2>&1 | tail -1",
     "lintCommand": "ruff check",
     "devCommand": null,
     "scripts": {}
@@ -54,7 +54,7 @@
       "path": "config",
       "purpose": "Configuration files",
       "fileCount": 1,
-      "lastAccessed": 1782907326482,
+      "lastAccessed": 1783161679215,
       "keyFiles": [
         "watchlist.yaml"
       ]
@@ -63,7 +63,7 @@
       "path": "data",
       "purpose": "Data files",
       "fileCount": 2,
-      "lastAccessed": 1782907326482,
+      "lastAccessed": 1783161679216,
       "keyFiles": [
         "quant_krx.duckdb"
       ]
@@ -72,21 +72,21 @@
       "path": "logs",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1782907326482,
+      "lastAccessed": 1783161679217,
       "keyFiles": []
     },
     "old-base-v1": {
       "path": "old-base-v1",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1782907326482,
+      "lastAccessed": 1783161679218,
       "keyFiles": []
     },
     "ops": {
       "path": "ops",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1782907326482,
+      "lastAccessed": 1783161679218,
       "keyFiles": [
         "setup.sh"
       ]
@@ -95,21 +95,21 @@
       "path": "reports",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1782907326483,
+      "lastAccessed": 1783161679218,
       "keyFiles": []
     },
     "src": {
       "path": "src",
       "purpose": "Source code",
       "fileCount": 0,
-      "lastAccessed": 1782907326483,
+      "lastAccessed": 1783161679219,
       "keyFiles": []
     },
     "tests": {
       "path": "tests",
       "purpose": "Test files",
       "fileCount": 1,
-      "lastAccessed": 1782907326483,
+      "lastAccessed": 1783161679219,
       "keyFiles": [
         "__init__.py"
       ]
@@ -118,7 +118,7 @@
       "path": "tests/fixtures",
       "purpose": "Test fixtures",
       "fileCount": 1,
-      "lastAccessed": 1782907326486,
+      "lastAccessed": 1783161679220,
       "keyFiles": [
         "sample_ohlcv.csv"
       ]
@@ -127,62 +127,68 @@
   "hotPaths": [
     {
       "path": "src/quant_krx/reports/report_b.py",
-      "accessCount": 36,
-      "lastAccessed": 1782921951428,
+      "accessCount": 38,
+      "lastAccessed": 1783163555864,
       "type": "file"
     },
     {
       "path": "src/quant_krx/reports/report_a.py",
-      "accessCount": 27,
-      "lastAccessed": 1782921931580,
+      "accessCount": 32,
+      "lastAccessed": 1783163548849,
       "type": "file"
     },
     {
       "path": "src/quant_krx/jobs/daily.py",
-      "accessCount": 25,
-      "lastAccessed": 1782921958679,
+      "accessCount": 28,
+      "lastAccessed": 1783162916943,
       "type": "file"
     },
     {
       "path": "src/quant_krx/config/settings.py",
-      "accessCount": 16,
-      "lastAccessed": 1782910823872,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/notify/telegram.py",
-      "accessCount": 11,
-      "lastAccessed": 1782910159795,
+      "accessCount": 17,
+      "lastAccessed": 1783162610979,
       "type": "file"
     },
     {
       "path": "src/quant_krx/storage/db.py",
-      "accessCount": 11,
-      "lastAccessed": 1782912185319,
+      "accessCount": 12,
+      "lastAccessed": 1783162609646,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/notify/telegram.py",
+      "accessCount": 12,
+      "lastAccessed": 1783162610008,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/quant/metrics.py",
+      "accessCount": 12,
+      "lastAccessed": 1783163627325,
       "type": "file"
     },
     {
       "path": "src/quant_krx/signals/classifier.py",
-      "accessCount": 10,
-      "lastAccessed": 1782921144541,
+      "accessCount": 11,
+      "lastAccessed": 1783163519341,
       "type": "file"
     },
     {
       "path": "src/quant_krx/quant/runner.py",
-      "accessCount": 9,
-      "lastAccessed": 1782921029111,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/__main__.py",
-      "accessCount": 8,
-      "lastAccessed": 1782838212004,
+      "accessCount": 10,
+      "lastAccessed": 1783162616352,
       "type": "file"
     },
     {
       "path": "src/quant_krx/reports/base.py",
-      "accessCount": 8,
-      "lastAccessed": 1782912206744,
+      "accessCount": 9,
+      "lastAccessed": 1783162602750,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/__main__.py",
+      "accessCount": 9,
+      "lastAccessed": 1783162617777,
       "type": "file"
     },
     {
@@ -192,39 +198,39 @@
       "type": "file"
     },
     {
-      "path": "src/quant_krx/quant/metrics.py",
-      "accessCount": 6,
-      "lastAccessed": 1782838711380,
-      "type": "file"
-    },
-    {
       "path": "src/quant_krx/storage/schema.py",
-      "accessCount": 6,
-      "lastAccessed": 1782921065114,
-      "type": "file"
-    },
-    {
-      "path": "tests/integration/test_daily_job.py",
-      "accessCount": 5,
-      "lastAccessed": 1782835471245,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/data/fdr_adapter.py",
-      "accessCount": 5,
-      "lastAccessed": 1782920253381,
+      "accessCount": 7,
+      "lastAccessed": 1783162622755,
       "type": "file"
     },
     {
       "path": "src/quant_krx/quant/base.py",
-      "accessCount": 5,
-      "lastAccessed": 1782921085388,
+      "accessCount": 7,
+      "lastAccessed": 1783163484412,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/data/fdr_adapter.py",
+      "accessCount": 6,
+      "lastAccessed": 1783162616765,
+      "type": "file"
+    },
+    {
+      "path": "tests/integration/test_daily_job.py",
+      "accessCount": 6,
+      "lastAccessed": 1783162958720,
       "type": "file"
     },
     {
       "path": "src/quant_krx/storage/validation.py",
-      "accessCount": 4,
-      "lastAccessed": 1782839424804,
+      "accessCount": 5,
+      "lastAccessed": 1783162617746,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/quant/strategies/momentum.py",
+      "accessCount": 5,
+      "lastAccessed": 1783162624507,
       "type": "file"
     },
     {
@@ -252,15 +258,15 @@
       "type": "file"
     },
     {
-      "path": "src/quant_krx/quant/strategies/momentum.py",
+      "path": "src/quant_krx/llm/factory.py",
       "accessCount": 4,
-      "lastAccessed": 1782921131039,
+      "lastAccessed": 1783162629113,
       "type": "file"
     },
     {
-      "path": "src/quant_krx/llm/factory.py",
-      "accessCount": 3,
-      "lastAccessed": 1782831648251,
+      "path": "src/quant_krx/llm/mock_provider.py",
+      "accessCount": 4,
+      "lastAccessed": 1783162724679,
       "type": "file"
     },
     {
@@ -276,15 +282,9 @@
       "type": "file"
     },
     {
-      "path": "src/quant_krx/llm/mock_provider.py",
-      "accessCount": 3,
-      "lastAccessed": 1782921530304,
-      "type": "file"
-    },
-    {
       "path": "src/quant_krx/llm/anthropic_provider.py",
-      "accessCount": 2,
-      "lastAccessed": 1782757248251,
+      "accessCount": 3,
+      "lastAccessed": 1783162629569,
       "type": "file"
     },
     {
@@ -336,15 +336,21 @@
       "type": "file"
     },
     {
-      "path": "src/quant_krx/config/profiles.py",
-      "accessCount": 1,
-      "lastAccessed": 1782757187400,
+      "path": "src/quant_krx/data/pykrx_adapter.py",
+      "accessCount": 2,
+      "lastAccessed": 1783162630057,
       "type": "file"
     },
     {
       "path": "src/quant_krx/llm/openai_provider.py",
+      "accessCount": 2,
+      "lastAccessed": 1783162687539,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/config/profiles.py",
       "accessCount": 1,
-      "lastAccessed": 1782757187940,
+      "lastAccessed": 1782757187400,
       "type": "file"
     },
     {
@@ -363,12 +369,6 @@
       "path": "src/quant_krx/data/fixture_adapter.py",
       "accessCount": 1,
       "lastAccessed": 1782910695776,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/data/pykrx_adapter.py",
-      "accessCount": 1,
-      "lastAccessed": 1782910696059,
       "type": "file"
     }
   ],

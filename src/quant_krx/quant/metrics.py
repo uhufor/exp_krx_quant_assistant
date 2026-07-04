@@ -9,6 +9,9 @@ from quant_krx.quant.base import BacktestMetrics
 
 logger = logging.getLogger(__name__)
 
+# 슬라이스된 벤치마크가 종목 기간과 이 일수(달력일) 이상 어긋나면 비교 불가로 판단
+BENCHMARK_MAX_GAP_DAYS = 30
+
 
 def extract_metrics(
     pf,  # vectorbt Portfolio
@@ -70,17 +73,37 @@ def extract_metrics(
         logger.warning(f"win_rate 추출 실패: {e}")
         win_rate = float("nan")
 
-    # 벤치마크 수익률
-    if benchmark is not None and not benchmark.empty:
+    # 벤치마크 수익률 — 종목 데이터와 동일 기간으로 슬라이싱해서 비교
+    # (최근 상장 종목은 벤치마크 전체 기간과 다르므로 그대로 쓰면 excess_return 왜곡)
+    # 슬라이스 후에도 벤치마크가 종목 기간을 충분히 덮지 못하면(역방향 불일치)
+    # 왜곡된 excess_return이 신호 점수에 반영되지 않도록 NaN 처리하고 사유를 남긴다.
+    bm_return = float("nan")
+    benchmark_note = ""
+    if benchmark is None or benchmark.empty:
+        benchmark_note = "벤치마크 데이터 없음"
+    else:
         bm_close = (
             benchmark.set_index("date")["close"]
             if "date" in benchmark.columns
             else benchmark["close"]
         )
-        bm_close = bm_close.astype(float).sort_index()
-        bm_return = float((bm_close.iloc[-1] - bm_close.iloc[0]) / bm_close.iloc[0])
-    else:
-        bm_return = float("nan")
+        bm_close = bm_close.astype(float)
+        bm_close.index = pd.to_datetime(bm_close.index)
+        bm_close = bm_close.sort_index()
+        bm_close = bm_close.loc[close.index[0]:close.index[-1]]
+        if len(bm_close) < 2 or bm_close.iloc[0] == 0:
+            benchmark_note = "종목 기간과 겹치는 벤치마크 데이터 부족"
+        else:
+            start_gap = (bm_close.index[0] - close.index[0]).days
+            end_gap = (close.index[-1] - bm_close.index[-1]).days
+            if start_gap > BENCHMARK_MAX_GAP_DAYS or end_gap > BENCHMARK_MAX_GAP_DAYS:
+                benchmark_note = (
+                    f"벤치마크 커버리지 부족: 종목 대비 시작 {start_gap}일, 끝 {end_gap}일 차이"
+                )
+            else:
+                bm_return = float((bm_close.iloc[-1] - bm_close.iloc[0]) / bm_close.iloc[0])
+    if benchmark_note:
+        logger.warning(f"벤치마크 수익률 NaN 처리: {benchmark_note}")
 
     excess_return = (
         total_return - bm_return
@@ -106,6 +129,7 @@ def extract_metrics(
         recent_6m_return=recent_6m,
         recent_12m_return=recent_12m,
         win_rate=win_rate,
+        benchmark_note=benchmark_note,
     )
 
 

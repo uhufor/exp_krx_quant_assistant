@@ -58,6 +58,7 @@ class Signal:
                 "recent_6m_return": self.evidence_metrics.recent_6m_return,
                 "recent_12m_return": self.evidence_metrics.recent_12m_return,
                 "win_rate": self.evidence_metrics.win_rate,
+                "benchmark_note": self.evidence_metrics.benchmark_note,
             },
         }
 

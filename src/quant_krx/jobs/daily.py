@@ -71,11 +71,15 @@ class DailyJob:
         self._runner = StrategyRunner()
         self._classifier = SignalClassifier(settings.evaluation.name)
         self._report_a = ReportARenderer()
-        self._llm = create_provider(
-            provider=settings.llm.provider,
-            mock=settings.llm.mock,
-            model=settings.llm.model,
-        )
+        llm_kwargs: dict[str, Any] = {
+            "provider": settings.llm.provider,
+            "mock": settings.llm.mock,
+            "model": settings.llm.model,
+        }
+        # .env는 os.environ으로 export되지 않으므로 설정에서 읽은 키를 직접 전달
+        if settings.llm.provider == "anthropic" and settings.llm.anthropic_api_key:
+            llm_kwargs["api_key"] = settings.llm.anthropic_api_key
+        self._llm = create_provider(**llm_kwargs)
         self._report_b = ReportBRenderer(llm=self._llm)
 
     def run(
@@ -185,10 +189,19 @@ class DailyJob:
 
             # 5. 알림 발송 (Report A/B 각각 별도 메시지)
             if telegram_messages and not dry_run and self._notifier:
+                sent_count = 0
                 for msg in telegram_messages:
-                    nid = self._notifier.send(run_id, msg)
-                    result.notification_ids.append(nid)
-                logger.info(f"[{run_id}] Telegram 발송: {len(telegram_messages)}개 메시지")
+                    try:
+                        nid = self._notifier.send(run_id, msg)
+                        result.notification_ids.append(nid)
+                        sent_count += 1
+                    except Exception as e:
+                        # 실패 건은 outbox에 failed로 기록됨 — 나머지 메시지는 계속 발송
+                        logger.error(f"[{run_id}] Telegram 발송 실패 (계속 진행): {e}")
+                        result.errors.append(f"telegram: {e}")
+                logger.info(
+                    f"[{run_id}] Telegram 발송: {sent_count}/{len(telegram_messages)}개 메시지"
+                )
             elif dry_run:
                 logger.info(f"[{run_id}] dry_run: 알림 생략 ({len(signals)}개 신호 처리됨)")
 

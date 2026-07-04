@@ -21,6 +21,7 @@ class BacktestMetrics:
     recent_6m_return: float      # 최근 6개월 수익률
     recent_12m_return: float     # 최근 12개월 수익률
     win_rate: float              # 승률 (수익 거래 / 전체 거래)
+    benchmark_note: str = ""     # benchmark_return이 NaN인 경우 그 사유
 
 
 @dataclass
