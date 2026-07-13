@@ -10,6 +10,8 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
+from quant_krx.data.schema import FUNDAMENTAL_SCHEMA_SQL
+
 from .schema import SCHEMA_SQL
 
 
@@ -22,6 +24,7 @@ class Database:
     def connect(self) -> None:
         self._conn = duckdb.connect(str(self._path))
         self._conn.execute(SCHEMA_SQL)
+        self._conn.execute(FUNDAMENTAL_SCHEMA_SQL)
 
     def close(self) -> None:
         if self._conn:

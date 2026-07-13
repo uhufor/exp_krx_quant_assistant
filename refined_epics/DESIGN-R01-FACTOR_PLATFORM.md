@@ -489,9 +489,9 @@ FundamentalProvider.fetch_*()  ──▶  upsert_fundamental(conn, table, frame,
                                    DuckDB(fundamental_daily / financial_statements)
                                         │
                                         ▼
-                                   load_factor_input(conn, symbol, ...)  ──▶ FactorInput
+                                   load_factor_input(conn, symbol, ...)  ──▶ FundamentalBundle
                                         (data/loader.py)                       │
-                                                                               ▼
+                                                                               ▼ (R03이 FactorInput으로 래핑)
                                                                    compute_factor(factor, input)
 ```
 
@@ -524,7 +524,14 @@ def upsert_fundamental(
 - 순서: (1) 품질 게이트 4검사(§6.5) → 위반 행 제외·`ExcludedRow` 수집 → (2) 수용 행 `INSERT OR REPLACE` → (3) `UpsertResult` 반환.
 - 멱등: 재실행 시 `INSERT OR REPLACE`로 중복 0(`AC-R01-08`).
 
-### 7.3 로더 — DB → FactorInput (§5.4)
+### 7.3 로더 — DB → FundamentalBundle (§5.4)
+
+> **구현 시 정정(§2.2 INV-1 우선)**: 최초 초안은 반환 타입을 `FactorInput`으로 명시했으나,
+> 이는 §2.2("data/는 factors/를 역참조하지 않는다 ... 유일한 접점은 데이터 계약, 코드
+> 의존 아님")와 내부 모순이다. `data/loader.py`가 `quant_krx.factors.base.FactorInput`을
+> import하면 INV-1(AST로 기계 강제되는 단방향 순수성)을 위반하므로, 구현은 `data/loader.py`
+> 로컬에 정의된 구조적으로 동일한 `FundamentalBundle(ohlcv, valuation, financials)`을
+> 반환한다. 두 계층을 모두 아는 상위 호출자(R03)가 이를 `FactorInput`으로 래핑한다.
 
 ```python
 def load_factor_input(
@@ -534,10 +541,10 @@ def load_factor_input(
     start: date | None = None,
     end: date | None = None,
     ohlcv: pd.DataFrame,     # OHLCV는 baseline 파이프라인이 제공(주입)
-) -> FactorInput: ...
+) -> FundamentalBundle: ...
 ```
 
-- `fundamental_daily`·`financial_statements`에서 단일 symbol 조회 → §5.4 규약으로 `valuation`/`financials` 재구성 → `FactorInput(ohlcv, valuation, financials)`.
+- `fundamental_daily`·`financial_statements`에서 단일 symbol 조회 → §5.4 규약으로 `valuation`/`financials` 재구성 → `FundamentalBundle(ohlcv, valuation, financials)`.
 - 데이터 부재 시 해당 프레임 `None`(degrade 경로 §6.4로 이어짐).
 
 ### 7.4 어댑터 3종 배치 (FR-16)

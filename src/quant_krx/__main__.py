@@ -214,5 +214,171 @@ def show_version():
     console.print(f"quant-krx {__version__}")
 
 
+@app.command("list-factors")
+def list_factors_cmd(
+    category: str = typer.Option(
+        None, "--category", "-c", help="카테고리 필터 (예: value, quality, growth)"
+    ),
+):
+    """등록된 팩터 목록을 출력한다."""
+    from quant_krx.factors import list_factors
+    from quant_krx.factors.metadata import FactorCategory
+
+    if category is not None:
+        valid = {c.value for c in FactorCategory}
+        if category not in valid:
+            console.print(
+                f"[red]알 수 없는 카테고리 '{category}'입니다. "
+                f"사용 가능: {', '.join(sorted(valid))}[/red]"
+            )
+            raise typer.Exit(1)
+
+    factors = list_factors(category)
+
+    table = Table(title="팩터 목록", show_lines=True)
+    table.add_column("id", style="bold")
+    table.add_column("표시명")
+    table.add_column("카테고리")
+    table.add_column("설명")
+
+    for meta in factors:
+        table.add_row(meta.id, meta.display_name, meta.category.value, meta.description)
+
+    console.print(table)
+
+
+@app.command("show-factor")
+def show_factor_cmd(factor_id: str = typer.Argument(..., help="조회할 팩터 id")):
+    """팩터 상세 정보(파라미터 명세·산출 컬럼·필요 데이터)를 출력한다."""
+    from quant_krx.factors.errors import UnknownFactorError
+    from quant_krx.factors.registry import get_factor
+
+    try:
+        factor = get_factor(factor_id)
+    except UnknownFactorError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1) from e
+
+    meta = factor.metadata
+
+    table = Table(title=f"팩터 상세: {meta.id}", show_lines=True)
+    table.add_column("항목")
+    table.add_column("값")
+    table.add_row("표시명", meta.display_name)
+    table.add_row("카테고리", meta.category.value)
+    table.add_row("설명", meta.description)
+    table.add_row("산출 컬럼", ", ".join(meta.output))
+    table.add_row("필요 데이터", ", ".join(meta.required_data))
+
+    if meta.params:
+        param_lines = []
+        for p in meta.params:
+            constraint = []
+            if p.min is not None:
+                constraint.append(f"min={p.min}")
+            if p.max is not None:
+                constraint.append(f"max={p.max}")
+            if p.choices is not None:
+                constraint.append(f"choices={p.choices}")
+            suffix = f" ({', '.join(constraint)})" if constraint else ""
+            param_lines.append(
+                f"{p.name}: {p.type.__name__} = {p.default}{suffix} — {p.description}"
+            )
+        table.add_row("파라미터", "\n".join(param_lines))
+    else:
+        table.add_row("파라미터", "(없음)")
+
+    console.print(table)
+
+    if "financials" in meta.required_data:
+        console.print(
+            "[yellow]참고: DART 재무제표 연동은 아직 구현되지 않았습니다(Deferred). "
+            "현재는 값이 NaN으로 반환됩니다.[/yellow]"
+        )
+
+
+@app.command("fetch-fundamental")
+def fetch_fundamental_cmd(
+    symbols: str = typer.Option(
+        None, "--symbols", "-s", help="콤마 구분 종목 목록 (생략 시 watchlist 전체)"
+    ),
+    start: str = typer.Option(None, "--start", help="시작일 YYYY-MM-DD (기본: 5년 전)"),
+    end: str = typer.Option(None, "--end", help="종료일 YYYY-MM-DD (기본: 오늘)"),
+    kind: str = typer.Option(
+        "all", "--kind", "-k", help="수집 종류: valuation | financials | all"
+    ),
+    provider: str = typer.Option(
+        "fixture", "--provider", "-p", help="데이터 제공자: fixture | pykrx"
+    ),
+):
+    """밸류에이션/재무제표 데이터를 수집해 DuckDB에 저장한다 (멱등)."""
+    from datetime import date, datetime, timedelta
+
+    from quant_krx.data.fixture_fundamental import FixtureFundamentalAdapter
+    from quant_krx.data.pykrx_fundamental import PyKrxFundamentalAdapter
+    from quant_krx.data.upsert import upsert_fundamental
+    from quant_krx.storage.db import Database
+
+    if kind not in ("valuation", "financials", "all"):
+        console.print(
+            f"[red]알 수 없는 --kind '{kind}'. 사용 가능: valuation, financials, all[/red]"
+        )
+        raise typer.Exit(1)
+    if provider not in ("fixture", "pykrx"):
+        console.print(f"[red]알 수 없는 --provider '{provider}'. 사용 가능: fixture, pykrx[/red]")
+        raise typer.Exit(1)
+
+    settings = get_settings()
+    sym_list = [s.strip() for s in symbols.split(",")] if symbols else settings.load_watchlist()
+    if not sym_list:
+        console.print(
+            "[red]수집할 종목이 없습니다. watchlist를 설정하거나 --symbols를 지정하세요.[/red]"
+        )
+        raise typer.Exit(1)
+
+    end_date = datetime.strptime(end, "%Y-%m-%d").date() if end else date.today()
+    start_date = (
+        datetime.strptime(start, "%Y-%m-%d").date() if start else end_date - timedelta(days=365 * 5)
+    )
+    as_of = date.today()
+
+    adapter = FixtureFundamentalAdapter() if provider == "fixture" else PyKrxFundamentalAdapter()
+
+    db = Database(settings.duckdb_path)
+    db.connect()
+
+    table = Table(title="fetch-fundamental 결과", show_lines=True)
+    table.add_column("종류")
+    table.add_column("수용")
+    table.add_column("제외")
+    table.add_column("제외 사유(일부)")
+
+    with db.cursor() as conn:
+        if kind in ("valuation", "all"):
+            try:
+                frame = adapter.fetch_valuation(sym_list, start_date, end_date)
+            except NotImplementedError as e:
+                console.print(f"[red]{e}[/red]")
+                raise typer.Exit(1) from e
+            frame = frame.assign(source=adapter.source_name, fetched_at=datetime.utcnow())
+            result = upsert_fundamental(conn, "fundamental_daily", frame, as_of=as_of)
+            reasons = ", ".join(f"{e.symbol}:{e.reason.value}" for e in result.excluded[:3])
+            table.add_row("valuation", str(result.accepted), str(len(result.excluded)), reasons)
+
+        if kind in ("financials", "all"):
+            try:
+                frame = adapter.fetch_financials(sym_list, start_date, end_date)
+            except NotImplementedError as e:
+                console.print(f"[red]{e}[/red]")
+                raise typer.Exit(1) from e
+            frame = frame.assign(source=adapter.source_name, fetched_at=datetime.utcnow())
+            result = upsert_fundamental(conn, "financial_statements", frame, as_of=as_of)
+            reasons = ", ".join(f"{e.symbol}:{e.reason.value}" for e in result.excluded[:3])
+            table.add_row("financials", str(result.accepted), str(len(result.excluded)), reasons)
+
+    console.print(table)
+    db.close()
+
+
 if __name__ == "__main__":
     app()

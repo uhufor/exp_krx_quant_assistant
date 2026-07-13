@@ -95,6 +95,18 @@ uv run python -m quant_krx validate-config
 
 기본적으로 5개 전략 모두 활성화됩니다.
 
+## 팩터 플랫폼 (Factor Platform)
+
+가격·기술(7종), 밸류에이션(11종), 재무제표(14종) 총 32종의 지표(Factor)를 플랫폼이
+1급 자원으로 관리합니다. 지표는 `factors/` 패키지가 순수 계산으로 제공하며,
+펀더멘털 데이터(밸류에이션·재무제표)는 `data/` 패키지가 DuckDB에 저장·조회합니다.
+
+| 카테고리 | 개수 | 예시 |
+|---|---|---|
+| 가격·기술 | 7 | `price`, `sma`, `ema`, `rsi`, `macd`, `bollinger`, `momentum` |
+| 밸류에이션 | 11 | `per`, `pbr`, `eps`, `bps`, `roe_approx`, `peg`, `market_cap` 등 |
+| 재무제표 | 14 | `roa`, `roic`, `gross_margin`, `revenue_growth`, `debt_to_equity` 등 |
+
 ## 사용법
 
 ### 전략 목록 확인
@@ -168,6 +180,32 @@ uv run python -m quant_krx show-reports --run-id 20260630-e5284252
 ```bash
 uv run python -m quant_krx validate-config
 ```
+
+### 팩터 조회
+
+```bash
+# 전체 팩터 목록 (카테고리 필터 가능)
+uv run python -m quant_krx list-factors
+uv run python -m quant_krx list-factors --category value
+
+# 팩터 상세 (파라미터 명세·산출 컬럼·필요 데이터)
+uv run python -m quant_krx show-factor macd
+uv run python -m quant_krx show-factor roa   # 재무제표 팩터는 DART 미구현 안내 표시
+```
+
+### 펀더멘털 데이터 수집
+
+```bash
+# 오프라인 테스트(Fixture) — 네트워크 없이 합성 데이터 수집
+uv run python -m quant_krx fetch-fundamental --provider fixture --symbols 005930,000660
+
+# 실 데이터 수집(PyKrx, 밸류에이션만 지원 — 재무제표는 DART 연동 전까지 미지원)
+uv run python -m quant_krx fetch-fundamental --provider pykrx --kind valuation \
+    --start 2024-01-01 --end 2024-12-31
+```
+
+멱등 수집이며, PK 중복·미래 일자·음수 필드 위반 행은 저장에서 제외되고 결과 표에
+제외 사유가 함께 표시됩니다.
 
 ## Mac mini 자동 실행 설정
 
