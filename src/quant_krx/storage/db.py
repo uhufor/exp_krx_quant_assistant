@@ -11,7 +11,14 @@ import duckdb
 import pandas as pd
 
 from quant_krx.data.schema import FUNDAMENTAL_SCHEMA_SQL
+from quant_krx.formula.definition import Formula
+from quant_krx.formula.validation import validate_formula_strict
+from quant_krx.rule.definition import Rule
+from quant_krx.rule.validation import validate_rule_strict
+from quant_krx.strategy.definition import StrategyDefinition
+from quant_krx.strategy.validation import validate_definition_strict
 
+from .definition_schema import DEFINITION_SCHEMA_SQL
 from .schema import SCHEMA_SQL
 
 
@@ -25,6 +32,7 @@ class Database:
         self._conn = duckdb.connect(str(self._path))
         self._conn.execute(SCHEMA_SQL)
         self._conn.execute(FUNDAMENTAL_SCHEMA_SQL)
+        self._conn.execute(DEFINITION_SCHEMA_SQL)
 
     def close(self) -> None:
         if self._conn:
@@ -167,3 +175,105 @@ class Database:
                    VALUES (nextval('run_events_id_seq'), ?, ?, ?, ?)""",
                 [run_id, event_type, message, level],
             )
+
+    # --- definitions: formula/rule/strategy (PRD-R02 REQ-P2/P3) ---
+
+    def upsert_formula(
+        self, formula: Formula, *, now: datetime, check_formula_store: bool = True
+    ) -> None:
+        resolve_formula = self.get_formula if check_formula_store else None
+        validate_formula_strict(formula, resolve_formula=resolve_formula)
+        self._upsert_definition("formulas", formula.id, formula.name, formula.version,
+                                 formula.schema_version, formula.to_dict(), now)
+
+    def get_formula(self, formula_id: str) -> Formula | None:
+        body = self._get_definition("formulas", formula_id)
+        return Formula.from_dict(body) if body is not None else None
+
+    def list_formulas(self) -> tuple[Formula, ...]:
+        return tuple(Formula.from_dict(body) for body in self._list_definitions("formulas"))
+
+    def delete_formula(self, formula_id: str) -> None:
+        self._delete_definition("formulas", formula_id)
+
+    def upsert_rule(self, rule: Rule, *, now: datetime, check_formula_store: bool = True) -> None:
+        resolve_formula = self.get_formula if check_formula_store else None
+        validate_rule_strict(rule, resolve_formula=resolve_formula)
+        self._upsert_definition("rules", rule.id, rule.name, rule.version,
+                                 rule.schema_version, rule.to_dict(), now)
+
+    def get_rule(self, rule_id: str) -> Rule | None:
+        body = self._get_definition("rules", rule_id)
+        return Rule.from_dict(body) if body is not None else None
+
+    def list_rules(self) -> tuple[Rule, ...]:
+        return tuple(Rule.from_dict(body) for body in self._list_definitions("rules"))
+
+    def delete_rule(self, rule_id: str) -> None:
+        self._delete_definition("rules", rule_id)
+
+    def upsert_strategy(
+        self,
+        defn: StrategyDefinition,
+        *,
+        now: datetime,
+        check_rule_store: bool = True,
+        check_formula_store: bool = True,
+    ) -> None:
+        resolve_rule = self.get_rule if check_rule_store else None
+        resolve_formula = self.get_formula if check_formula_store else None
+        validate_definition_strict(defn, resolve_rule=resolve_rule, resolve_formula=resolve_formula)
+        self._upsert_definition("strategies", defn.id, defn.name, defn.version,
+                                 defn.schema_version, defn.to_dict(), now)
+
+    def get_strategy(self, strategy_id: str) -> StrategyDefinition | None:
+        body = self._get_definition("strategies", strategy_id)
+        return StrategyDefinition.from_dict(body) if body is not None else None
+
+    def list_strategies(self) -> tuple[StrategyDefinition, ...]:
+        return tuple(
+            StrategyDefinition.from_dict(body) for body in self._list_definitions("strategies")
+        )
+
+    def delete_strategy(self, strategy_id: str) -> None:
+        self._delete_definition("strategies", strategy_id)
+
+    def _upsert_definition(
+        self,
+        table: str,
+        id_: str,
+        name: str,
+        version: str,
+        schema_version: int,
+        body: dict,
+        now: datetime,
+    ) -> None:
+        with self.cursor() as conn:
+            existing = conn.execute(
+                f"SELECT created_at FROM {table} WHERE id=?", [id_]
+            ).fetchone()
+            created_at = existing[0] if existing else now
+            conn.execute(
+                f"""INSERT OR REPLACE INTO {table}
+                        (id, name, version, schema_version, definition, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                [id_, name, version, schema_version, json.dumps(body), created_at, now],
+            )
+
+    def _get_definition(self, table: str, id_: str) -> dict | None:
+        with self.cursor() as conn:
+            row = conn.execute(
+                f"SELECT definition FROM {table} WHERE id=?", [id_]
+            ).fetchone()
+        return json.loads(row[0]) if row is not None else None
+
+    def _list_definitions(self, table: str) -> list[dict]:
+        with self.cursor() as conn:
+            rows = conn.execute(
+                f"SELECT definition FROM {table} ORDER BY id"
+            ).fetchall()
+        return [json.loads(row[0]) for row in rows]
+
+    def _delete_definition(self, table: str, id_: str) -> None:
+        with self.cursor() as conn:
+            conn.execute(f"DELETE FROM {table} WHERE id=?", [id_])
