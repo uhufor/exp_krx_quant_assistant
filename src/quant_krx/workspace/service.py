@@ -5,6 +5,8 @@ from collections.abc import Callable
 from datetime import date, datetime
 from typing import Literal, TypeVar
 
+import pandas as pd
+
 from quant_krx._jsonnorm import ValidationResult
 from quant_krx.factors import FactorInput
 from quant_krx.formula.definition import BinaryOp, Formula, UnaryOp
@@ -18,7 +20,7 @@ from quant_krx.strategy.definition import StrategyDefinition
 from quant_krx.strategy.validation import is_runnable as strategy_is_runnable
 from quant_krx.strategy.validation import validate_definition
 from quant_krx.workspace.backtest import BacktestReport, run_backtest
-from quant_krx.workspace.errors import WorkspaceError
+from quant_krx.workspace.errors import WorkspaceError, not_found_hint
 from quant_krx.workspace.templates import BUILTIN_TEMPLATES, StrategyBundle, TemplateInfo
 
 _Entity = TypeVar("_Entity", Formula, Rule, StrategyDefinition)
@@ -193,7 +195,8 @@ class WorkspaceService:
     def _require_runnable_and_valid(self, strategy_id: str) -> StrategyDefinition:
         defn = self.get_strategy(strategy_id)
         if defn is None:
-            raise WorkspaceError(f"전략 '{strategy_id}'을(를) 찾을 수 없습니다")
+            hint = not_found_hint(d.id for d in self.list_strategies())
+            raise WorkspaceError(f"전략 '{strategy_id}'을(를) 찾을 수 없습니다.{hint}")
         if not strategy_is_runnable(defn):
             raise WorkspaceError(
                 f"전략 '{strategy_id}'은(는) 실행 가능(runnable) 상태가 아닙니다"
@@ -232,7 +235,7 @@ class WorkspaceService:
         end: date | None = None,
         fees: float,
         slippage: float,
-        benchmark: object | None = None,
+        benchmark: pd.DataFrame | None = None,
     ) -> BacktestReport:
         defn = self._require_runnable_and_valid(strategy_id)
         return run_backtest(
@@ -264,7 +267,8 @@ class WorkspaceService:
     ) -> StrategyDefinition:
         bundle = self.get_template(template_id)
         if bundle is None:
-            raise WorkspaceError(f"템플릿 '{template_id}'을(를) 찾을 수 없습니다")
+            hint = not_found_hint(t.template_id for t in self.list_templates())
+            raise WorkspaceError(f"템플릿 '{template_id}'을(를) 찾을 수 없습니다.{hint}")
         for formula in bundle.formulas:
             if self.get_formula(formula.id) is None:
                 self.upsert_formula(formula, now=now)
@@ -280,7 +284,8 @@ class WorkspaceService:
             raise WorkspaceError(f"template_id '{template_id}'은(는) Built-in과 충돌합니다")
         defn = self.get_strategy(strategy_id)
         if defn is None:
-            raise WorkspaceError(f"전략 '{strategy_id}'을(를) 찾을 수 없습니다")
+            hint = not_found_hint(d.id for d in self.list_strategies())
+            raise WorkspaceError(f"전략 '{strategy_id}'을(를) 찾을 수 없습니다.{hint}")
         bundle = self._collect_bundle(defn)
         self._db.upsert_template(template_id, name=defn.name, bundle=bundle.to_dict(), now=now)
 
@@ -311,7 +316,8 @@ class WorkspaceService:
     def export_strategy(self, strategy_id: str) -> StrategyBundle:
         defn = self.get_strategy(strategy_id)
         if defn is None:
-            raise WorkspaceError(f"전략 '{strategy_id}'을(를) 찾을 수 없습니다")
+            hint = not_found_hint(d.id for d in self.list_strategies())
+            raise WorkspaceError(f"전략 '{strategy_id}'을(를) 찾을 수 없습니다.{hint}")
         return self._collect_bundle(defn)
 
     def _import_one(

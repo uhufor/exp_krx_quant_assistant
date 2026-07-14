@@ -375,6 +375,9 @@ def strategy_backtest_cmd(
     data_source: str = typer.Option(
         "fixture", "--data-source", help="데이터 소스: fixture | fdr | pykrx"
     ),
+    benchmark: str = typer.Option(
+        None, "--benchmark", help="벤치마크 심볼/시장(예: KOSPI) — 상대 성과 함께 산출"
+    ),
 ):
     """선언형 전략을 백테스트하고 최소 지표 집합을 표로 표시한다."""
     from datetime import date, datetime, timedelta
@@ -384,6 +387,7 @@ def strategy_backtest_cmd(
     from quant_krx.data.pykrx_fundamental import PyKrxFundamentalAdapter
     from quant_krx.storage.db import Database
     from quant_krx.workspace.data_loading import build_factor_input, fetch_and_upsert_fundamentals
+    from quant_krx.workspace.errors import WorkspaceError
     from quant_krx.workspace.evaluation import strategy_required_data
     from quant_krx.workspace.service import WorkspaceService
 
@@ -398,7 +402,10 @@ def strategy_backtest_cmd(
 
     defn = svc.get_strategy(strategy_id)
     if defn is None:
-        console.print(f"[red]전략 '{strategy_id}'을(를) 찾을 수 없습니다[/red]")
+        from quant_krx.workspace.errors import not_found_hint
+
+        hint = not_found_hint(d.id for d in svc.list_strategies())
+        console.print(f"[red]전략 '{strategy_id}'을(를) 찾을 수 없습니다.{hint}[/red]")
         db.close()
         raise typer.Exit(1)
 
@@ -454,13 +461,29 @@ def strategy_backtest_cmd(
         for sym in sym_list
     }
 
-    report = svc.backtest(
-        strategy_id, data=data, start=start_date, end=end_date, fees=fees, slippage=slippage
-    )
+    benchmark_df = None
+    if benchmark:
+        try:
+            benchmark_df = ohlcv_provider.fetch_benchmark(benchmark, start_date, end_date).df
+        except Exception as e:
+            console.print(f"[yellow]벤치마크 '{benchmark}' 수집 실패(무시하고 계속): {e}[/yellow]")
+
+    try:
+        report = svc.backtest(
+            strategy_id, data=data, start=start_date, end=end_date,
+            fees=fees, slippage=slippage, benchmark=benchmark_df,
+        )
+    except WorkspaceError as e:
+        console.print(f"[red]백테스트 실패: {e}[/red]")
+        db.close()
+        raise typer.Exit(1) from e
     db.close()
 
     metrics = report.metrics
-    table = Table(title=f"백테스트: {strategy_id}", show_lines=True)
+    title = f"백테스트: {strategy_id}"
+    if len(sym_list) > 1:
+        title += f" (대표 종목: {sym_list[0]}, 종목별 지표는 report.per_symbol 참조)"
+    table = Table(title=title, show_lines=True)
     table.add_column("지표")
     table.add_column("값")
     table.add_row("총수익률", f"{metrics.total_return:.2%}")
@@ -469,7 +492,10 @@ def strategy_backtest_cmd(
     table.add_row("승률", f"{metrics.win_rate:.2%}" if not math.isnan(metrics.win_rate) else "N/A")
     table.add_row("거래 횟수", str(metrics.trade_count))
     table.add_row("총 비용", f"{metrics.fees_paid + metrics.slippage_cost:.2f}")
-    if metrics.benchmark_note:
+    if not math.isnan(metrics.benchmark_return):
+        table.add_row("벤치마크 수익률", f"{metrics.benchmark_return:.2%}")
+        table.add_row("초과수익률", f"{metrics.excess_return:.2%}")
+    elif metrics.benchmark_note:
         table.add_row("벤치마크", metrics.benchmark_note)
     console.print(table)
 
@@ -498,11 +524,15 @@ def formula_create_cmd(
 @app.command("formula-show")
 def formula_show_cmd(formula_id: str = typer.Argument(..., help="조회할 formula id")):
     """Formula 정의를 JSON으로 조회한다."""
+    from quant_krx.workspace.errors import not_found_hint
+
     db, svc = _open_workspace()
     formula = svc.get_formula(formula_id)
+    available = [f.id for f in svc.list_formulas()]
     db.close()
     if formula is None:
-        console.print(f"[red]Formula '{formula_id}'을(를) 찾을 수 없습니다[/red]")
+        hint = not_found_hint(available)
+        console.print(f"[red]Formula '{formula_id}'을(를) 찾을 수 없습니다.{hint}[/red]")
         raise typer.Exit(1)
     console.print_json(json.dumps(formula.to_dict(), ensure_ascii=False))
 
@@ -562,11 +592,15 @@ def rule_create_cmd(
 @app.command("rule-show")
 def rule_show_cmd(rule_id: str = typer.Argument(..., help="조회할 rule id")):
     """Rule 정의를 JSON으로 조회한다."""
+    from quant_krx.workspace.errors import not_found_hint
+
     db, svc = _open_workspace()
     rule = svc.get_rule(rule_id)
+    available = [r.id for r in svc.list_rules()]
     db.close()
     if rule is None:
-        console.print(f"[red]Rule '{rule_id}'을(를) 찾을 수 없습니다[/red]")
+        hint = not_found_hint(available)
+        console.print(f"[red]Rule '{rule_id}'을(를) 찾을 수 없습니다.{hint}[/red]")
         raise typer.Exit(1)
     console.print_json(json.dumps(rule.to_dict(), ensure_ascii=False))
 
@@ -636,11 +670,15 @@ def strategy_create_cmd(
 @app.command("strategy-show")
 def strategy_show_cmd(strategy_id: str = typer.Argument(..., help="조회할 전략 id")):
     """전략 정의를 JSON으로 조회한다."""
+    from quant_krx.workspace.errors import not_found_hint
+
     db, svc = _open_workspace()
     defn = svc.get_strategy(strategy_id)
+    available = [d.id for d in svc.list_strategies()]
     db.close()
     if defn is None:
-        console.print(f"[red]전략 '{strategy_id}'을(를) 찾을 수 없습니다[/red]")
+        hint = not_found_hint(available)
+        console.print(f"[red]전략 '{strategy_id}'을(를) 찾을 수 없습니다.{hint}[/red]")
         raise typer.Exit(1)
     console.print_json(json.dumps(defn.to_dict(), ensure_ascii=False))
 
@@ -709,11 +747,15 @@ def strategy_list_cmd():
 @app.command("strategy-validate")
 def strategy_validate_cmd(strategy_id: str = typer.Argument(..., help="검증할 전략 id")):
     """전략의 전이 검증을 실행 없이 수행한다."""
+    from quant_krx.workspace.errors import not_found_hint
+
     db, svc = _open_workspace()
     defn = svc.get_strategy(strategy_id)
     if defn is None:
+        available = [d.id for d in svc.list_strategies()]
         db.close()
-        console.print(f"[red]전략 '{strategy_id}'을(를) 찾을 수 없습니다[/red]")
+        hint = not_found_hint(available)
+        console.print(f"[red]전략 '{strategy_id}'을(를) 찾을 수 없습니다.{hint}[/red]")
         raise typer.Exit(1)
     result = svc.validate_strategy(defn)
     db.close()

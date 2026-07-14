@@ -183,6 +183,22 @@ def test_valuation_required_strategy_triggers_fundamental_fetch(
     assert calls["n"] >= 1
 
 
+def test_injected_now_makes_seed_activation_timestamp_deterministic(
+    tmp_db, test_settings, fixture_provider
+):
+    # TR-R03-025/INV-3: DailyJob.run()에 now를 주입하면 전환 시드가 기록하는
+    # strategy_activation.updated_at도 결정론이어야 한다(벽시계 datetime.utcnow() 의존 금지).
+    job = _make_job(test_settings, tmp_db, fixture_provider)
+    result = job.run(dry_run=True, as_of=AS_OF, now=NOW)
+    assert result.status == "ok"
+
+    with tmp_db.cursor() as conn:
+        row = conn.execute(
+            "SELECT updated_at FROM strategy_activation WHERE strategy_id='ma_crossover'"
+        ).fetchone()
+    assert row[0] == NOW
+
+
 def test_strategy_symbol_failure_isolated_and_batch_completes(
     tmp_db, test_settings, fixture_provider
 ):

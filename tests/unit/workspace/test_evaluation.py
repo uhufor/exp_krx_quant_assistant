@@ -227,3 +227,16 @@ def test_check_data_contract_ohlcv_only_passes(ohlcv) -> None:
     resolve_rule = _rule_resolver({"entry_rule": rule})
     ctx = _ctx(ohlcv)
     check_data_contract(defn, ctx, resolve_rule)  # 예외 없음
+
+
+def test_factor_cache_isolated_across_contexts(ohlcv) -> None:
+    # NFR-05: 캐시 수명은 단일 (전략,종목) EvaluationContext 한정 — 컨텍스트 간 dict 공유 금지.
+    formula = _sma_formula("m1", window=5)
+    ctx1 = _ctx(ohlcv)
+    ctx2 = _ctx(ohlcv)
+
+    evaluate_formula(formula, ctx1)
+
+    assert ctx1._factor_cache is not ctx2._factor_cache
+    assert ("sma", '{"window":5}') in ctx1._factor_cache
+    assert ctx2._factor_cache == {}  # 별개 컨텍스트는 아무 것도 물려받지 않는다

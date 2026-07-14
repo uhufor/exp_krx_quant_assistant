@@ -80,11 +80,13 @@ class DailyJob:
         self._llm = create_provider(**llm_kwargs)
         self._report_b = ReportBRenderer(llm=self._llm)
 
-    def run(self, dry_run: bool = False, as_of: date | None = None) -> DailyJobResult:
+    def run(
+        self, dry_run: bool = False, as_of: date | None = None, now: datetime | None = None
+    ) -> DailyJobResult:
         run_id = f"{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:8]}"
         result = DailyJobResult(run_id=run_id, started_at=datetime.utcnow())
         as_of = as_of or date.today()
-        now = datetime.utcnow()
+        now = now or datetime.utcnow()  # 시각 주입(INV-3) — 미지정 시에만 벽시계 폴백
 
         logger.info(f"[{run_id}] 일일 작업 시작 (dry_run={dry_run}, as_of={as_of})")
         self._db.log_event(run_id, "job_start", f"dry_run={dry_run}, as_of={as_of}")

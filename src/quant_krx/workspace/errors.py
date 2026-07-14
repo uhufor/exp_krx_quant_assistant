@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+
+
+def not_found_hint(available_ids: Iterable[str]) -> str:
+    """미존재 id 오류 메시지에 덧붙이는 "사용 가능한 id" 행동 힌트(공통 원칙 7, TR-R03-024)."""
+    ids = sorted(available_ids)
+    return f" 사용 가능한 id: {', '.join(ids)}" if ids else " (등록된 항목 없음)"
+
 
 class WorkspaceError(Exception):
     """파사드 기반 오류 — 활성화 전제·활성 참조 보호·Template 충돌·Import 충돌(PRD-R03 §4/§8/§9)."""
