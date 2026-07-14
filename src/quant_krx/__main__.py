@@ -1,5 +1,9 @@
+import dataclasses
 import json
 import math
+import sys
+from datetime import datetime
+from pathlib import Path
 
 import typer
 from rich.console import Console
@@ -14,17 +18,29 @@ app = typer.Typer(name="quant-krx", help="KRX Korean Stock Quant Trading Assista
 console = Console()
 
 
+def _read_json_input(source: str) -> dict:
+    """정의 입력 규약 — JSON 파일 경로 또는 stdin('-')."""
+    raw = sys.stdin.read() if source == "-" else Path(source).read_text()
+    return json.loads(raw)
+
+
+def _open_workspace():
+    from quant_krx.storage.db import Database
+    from quant_krx.workspace.service import WorkspaceService
+
+    settings = get_settings()
+    db = Database(settings.duckdb_path)
+    db.connect()
+    return db, WorkspaceService(db)
+
+
 @app.command("run-daily")
 def run_daily(
     dry_run: bool = typer.Option(
         True, "--dry-run/--no-dry-run", help="알림 발송 없이 리포트만 생성"
     ),
-    strategies: str = typer.Option(
-        None, "--strategies", "-s",
-        help="실행할 전략 (콤마 구분). 예: ma_crossover,macd  생략하면 설정 기준 전체 실행.",
-    ),
 ):
-    """일일 퀀트 파이프라인 실행."""
+    """일일 퀀트 파이프라인 실행(활성 선언형 전략 집합 — strategy-activate로 제어)."""
     from quant_krx.data.fdr_adapter import FDRAdapter
     from quant_krx.jobs.daily import DailyJob
     from quant_krx.storage.db import Database
@@ -47,10 +63,8 @@ def run_daily(
             db=db,
         )
 
-    enabled = [s.strip() for s in strategies.split(",")] if strategies else None
-
     job = DailyJob(settings=settings, db=db, provider=provider, notifier=notifier)
-    result = job.run(dry_run=dry_run, enabled_strategies=enabled)
+    result = job.run(dry_run=dry_run)
 
     table = Table(title=f"Daily Job: {result.run_id}")
     table.add_column("항목")
@@ -151,38 +165,6 @@ def show_reports(
                     title=f"[bold]{sym}[/bold] · {strategy} · Report {rtype}",
                     border_style="dim",
                 ))
-
-
-@app.command("list-strategies")
-def list_strategies():
-    """사용 가능한 전략 목록과 현재 활성화 상태 출력."""
-    from quant_krx.config.settings import ALL_STRATEGIES
-
-    settings = get_settings()
-    enabled = set(settings.strategy.enabled)
-
-    _DESCRIPTIONS = {
-        "ma_crossover":  "MA 교차 — 단기(20일)/장기(60일) 이동평균 골든·데드크로스",
-        "rsi_breakout":  "RSI 돌파 — RSI 30 이하 매수 / 70 이상 매도 (역추세)",
-        "bollinger_band": "볼린저 밴드 — 가격이 밴드 이탈 시 평균 회귀 기대",
-        "macd":          "MACD — 12/26 EMA 차이의 시그널선 교차 (모멘텀)",
-        "momentum":      "12-1 모멘텀 — 12개월 수익률 기반 추세 지속성 (Jegadeesh & Titman)",
-    }
-
-    table = Table(title="전략 목록", show_lines=True)
-    table.add_column("이름", style="bold")
-    table.add_column("상태")
-    table.add_column("설명")
-
-    for name in ALL_STRATEGIES:
-        status = "[green]ON[/green]" if name in enabled else "[dim]OFF[/dim]"
-        table.add_row(name, status, _DESCRIPTIONS.get(name, ""))
-
-    console.print(table)
-    console.print(
-        "\n[dim]전략 선택: uv run python -m quant_krx run-daily "
-        "--strategies ma_crossover,macd[/dim]"
-    )
 
 
 @app.command("validate-config")
@@ -377,6 +359,462 @@ def fetch_fundamental_cmd(
             table.add_row("financials", str(result.accepted), str(len(result.excluded)), reasons)
 
     console.print(table)
+    db.close()
+
+
+@app.command("strategy-backtest")
+def strategy_backtest_cmd(
+    strategy_id: str = typer.Argument(..., help="백테스트할 전략 id"),
+    symbols: str = typer.Option(
+        None, "--symbols", help="콤마 구분 종목 목록(생략 시 전략 universe 또는 watchlist)"
+    ),
+    start: str = typer.Option(None, "--start", help="시작일 YYYY-MM-DD(기본: 5년 전)"),
+    end: str = typer.Option(None, "--end", help="종료일 YYYY-MM-DD(기본: 오늘)"),
+    fees: float = typer.Option(0.003, "--fees"),
+    slippage: float = typer.Option(0.001, "--slippage"),
+    data_source: str = typer.Option(
+        "fixture", "--data-source", help="데이터 소스: fixture | fdr | pykrx"
+    ),
+):
+    """선언형 전략을 백테스트하고 최소 지표 집합을 표로 표시한다."""
+    from datetime import date, datetime, timedelta
+
+    from quant_krx.data.fixture_adapter import FixtureAdapter
+    from quant_krx.data.fixture_fundamental import FixtureFundamentalAdapter
+    from quant_krx.data.pykrx_fundamental import PyKrxFundamentalAdapter
+    from quant_krx.storage.db import Database
+    from quant_krx.workspace.data_loading import build_factor_input, fetch_and_upsert_fundamentals
+    from quant_krx.workspace.evaluation import strategy_required_data
+    from quant_krx.workspace.service import WorkspaceService
+
+    if data_source not in ("fixture", "fdr", "pykrx"):
+        console.print(f"[red]알 수 없는 --data-source '{data_source}'[/red]")
+        raise typer.Exit(1)
+
+    settings = get_settings()
+    db = Database(settings.duckdb_path)
+    db.connect()
+    svc = WorkspaceService(db)
+
+    defn = svc.get_strategy(strategy_id)
+    if defn is None:
+        console.print(f"[red]전략 '{strategy_id}'을(를) 찾을 수 없습니다[/red]")
+        db.close()
+        raise typer.Exit(1)
+
+    validation = svc.validate_strategy(defn)
+    if not svc.is_runnable(strategy_id) or not validation.ok:
+        console.print(f"[red]전략 '{strategy_id}'은(는) 실행 불가(runnable/검증)[/red]")
+        if validation.errors:
+            console.print(f"[dim]{'; '.join(validation.errors)}[/dim]")
+        db.close()
+        raise typer.Exit(1)
+
+    sym_list = (
+        [s.strip() for s in symbols.split(",")]
+        if symbols
+        else (list(defn.universe.symbols) or settings.load_watchlist())
+    )
+    if not sym_list:
+        console.print("[red]대상 종목이 없습니다. --symbols 지정 또는 watchlist 설정 필요[/red]")
+        db.close()
+        raise typer.Exit(1)
+
+    end_date = datetime.strptime(end, "%Y-%m-%d").date() if end else date.today()
+    start_date = (
+        datetime.strptime(start, "%Y-%m-%d").date()
+        if start
+        else end_date - timedelta(days=365 * 5)
+    )
+
+    ohlcv_provider = FixtureAdapter()
+    if data_source == "fdr":
+        from quant_krx.data.fdr_adapter import FDRAdapter
+
+        ohlcv_provider = FDRAdapter()
+    elif data_source == "pykrx":
+        from quant_krx.data.pykrx_adapter import PyKrxAdapter
+
+        ohlcv_provider = PyKrxAdapter()
+
+    required_kinds = strategy_required_data(defn, svc.get_rule, svc.get_formula)
+    if required_kinds & {"valuation", "financials"}:
+        fundamental_provider = (
+            FixtureFundamentalAdapter() if data_source == "fixture" else PyKrxFundamentalAdapter()
+        )
+        fetch_and_upsert_fundamentals(
+            db, sym_list, fundamental_provider,
+            start=start_date, end=end_date, as_of=date.today(), kinds=required_kinds,
+        )
+
+    data = {
+        sym: build_factor_input(
+            db, sym, ohlcv_provider=ohlcv_provider, start=start_date, end=end_date
+        )
+        for sym in sym_list
+    }
+
+    report = svc.backtest(
+        strategy_id, data=data, start=start_date, end=end_date, fees=fees, slippage=slippage
+    )
+    db.close()
+
+    metrics = report.metrics
+    table = Table(title=f"백테스트: {strategy_id}", show_lines=True)
+    table.add_column("지표")
+    table.add_column("값")
+    table.add_row("총수익률", f"{metrics.total_return:.2%}")
+    table.add_row("MDD", f"{metrics.mdd:.2%}")
+    table.add_row("Sharpe", f"{metrics.sharpe:.3f}" if not math.isnan(metrics.sharpe) else "N/A")
+    table.add_row("승률", f"{metrics.win_rate:.2%}" if not math.isnan(metrics.win_rate) else "N/A")
+    table.add_row("거래 횟수", str(metrics.trade_count))
+    table.add_row("총 비용", f"{metrics.fees_paid + metrics.slippage_cost:.2f}")
+    if metrics.benchmark_note:
+        table.add_row("벤치마크", metrics.benchmark_note)
+    console.print(table)
+
+
+@app.command("formula-create")
+def formula_create_cmd(
+    input_source: str = typer.Argument(..., help="JSON 파일 경로 또는 '-'(stdin)"),
+):
+    """Formula 정의를 생성/전체교체한다."""
+    from quant_krx._jsonnorm import DefinitionError
+    from quant_krx.formula.definition import Formula
+    from quant_krx.workspace.errors import WorkspaceError
+
+    db, svc = _open_workspace()
+    try:
+        formula = Formula.from_dict(_read_json_input(input_source))
+        svc.upsert_formula(formula, now=datetime.utcnow())
+    except (DefinitionError, WorkspaceError, OSError, json.JSONDecodeError, KeyError) as e:
+        console.print(f"[red]{e}[/red]")
+        db.close()
+        raise typer.Exit(1) from e
+    console.print(f"[green]Formula '{formula.id}' 저장 완료[/green]")
+    db.close()
+
+
+@app.command("formula-show")
+def formula_show_cmd(formula_id: str = typer.Argument(..., help="조회할 formula id")):
+    """Formula 정의를 JSON으로 조회한다."""
+    db, svc = _open_workspace()
+    formula = svc.get_formula(formula_id)
+    db.close()
+    if formula is None:
+        console.print(f"[red]Formula '{formula_id}'을(를) 찾을 수 없습니다[/red]")
+        raise typer.Exit(1)
+    console.print_json(json.dumps(formula.to_dict(), ensure_ascii=False))
+
+
+@app.command("formula-delete")
+def formula_delete_cmd(formula_id: str = typer.Argument(..., help="삭제할 formula id")):
+    """Formula 정의를 삭제한다."""
+    from quant_krx.workspace.errors import WorkspaceError
+
+    db, svc = _open_workspace()
+    try:
+        svc.delete_formula(formula_id)
+    except WorkspaceError as e:
+        console.print(f"[red]{e}[/red]")
+        db.close()
+        raise typer.Exit(1) from e
+    console.print(f"[green]Formula '{formula_id}' 삭제 완료[/green]")
+    db.close()
+
+
+@app.command("list-formulas")
+def list_formulas_cmd():
+    """저장된 Formula 목록을 표시한다."""
+    db, svc = _open_workspace()
+    formulas = svc.list_formulas()
+    db.close()
+    table = Table(title="Formula 목록", show_lines=True)
+    table.add_column("id", style="bold")
+    table.add_column("name")
+    table.add_column("output_column")
+    for f in formulas:
+        table.add_row(f.id, f.name, f.output_column)
+    console.print(table)
+
+
+@app.command("rule-create")
+def rule_create_cmd(
+    input_source: str = typer.Argument(..., help="JSON 파일 경로 또는 '-'(stdin)"),
+):
+    """Rule 정의를 생성/전체교체한다."""
+    from quant_krx._jsonnorm import DefinitionError
+    from quant_krx.rule.definition import Rule
+    from quant_krx.workspace.errors import WorkspaceError
+
+    db, svc = _open_workspace()
+    try:
+        rule = Rule.from_dict(_read_json_input(input_source))
+        svc.upsert_rule(rule, now=datetime.utcnow())
+    except (DefinitionError, WorkspaceError, OSError, json.JSONDecodeError, KeyError) as e:
+        console.print(f"[red]{e}[/red]")
+        db.close()
+        raise typer.Exit(1) from e
+    console.print(f"[green]Rule '{rule.id}' 저장 완료[/green]")
+    db.close()
+
+
+@app.command("rule-show")
+def rule_show_cmd(rule_id: str = typer.Argument(..., help="조회할 rule id")):
+    """Rule 정의를 JSON으로 조회한다."""
+    db, svc = _open_workspace()
+    rule = svc.get_rule(rule_id)
+    db.close()
+    if rule is None:
+        console.print(f"[red]Rule '{rule_id}'을(를) 찾을 수 없습니다[/red]")
+        raise typer.Exit(1)
+    console.print_json(json.dumps(rule.to_dict(), ensure_ascii=False))
+
+
+@app.command("rule-delete")
+def rule_delete_cmd(rule_id: str = typer.Argument(..., help="삭제할 rule id")):
+    """Rule 정의를 삭제한다."""
+    from quant_krx.workspace.errors import WorkspaceError
+
+    db, svc = _open_workspace()
+    try:
+        svc.delete_rule(rule_id)
+    except WorkspaceError as e:
+        console.print(f"[red]{e}[/red]")
+        db.close()
+        raise typer.Exit(1) from e
+    console.print(f"[green]Rule '{rule_id}' 삭제 완료[/green]")
+    db.close()
+
+
+@app.command("list-rules")
+def list_rules_cmd():
+    """저장된 Rule 목록을 표시한다."""
+    db, svc = _open_workspace()
+    rules = svc.list_rules()
+    db.close()
+    table = Table(title="Rule 목록", show_lines=True)
+    table.add_column("id", style="bold")
+    table.add_column("name")
+    for r in rules:
+        table.add_row(r.id, r.name)
+    console.print(table)
+
+
+@app.command("strategy-create")
+def strategy_create_cmd(
+    new_id: str = typer.Argument(..., help="생성할 전략 id"),
+    input_source: str = typer.Argument(
+        None, help="JSON 파일 경로 또는 '-'(stdin) — --template 미지정 시 필수"
+    ),
+    template: str = typer.Option(None, "--template", help="Template id로부터 복제 생성"),
+):
+    """전략을 생성한다(신규 JSON 정의 또는 Template 복제)."""
+    from quant_krx._jsonnorm import DefinitionError
+    from quant_krx.strategy.definition import StrategyDefinition
+    from quant_krx.workspace.errors import WorkspaceError
+
+    db, svc = _open_workspace()
+    try:
+        if template:
+            defn = svc.create_from_template(template, new_id, now=datetime.utcnow())
+        else:
+            if not input_source:
+                raise WorkspaceError("--template 미지정 시 JSON 입력이 필요합니다")
+            defn = StrategyDefinition.from_dict(_read_json_input(input_source))
+            if defn.id != new_id:
+                defn = dataclasses.replace(defn, id=new_id)
+            svc.upsert_strategy(defn, now=datetime.utcnow())
+    except (DefinitionError, WorkspaceError, OSError, json.JSONDecodeError, KeyError) as e:
+        console.print(f"[red]{e}[/red]")
+        db.close()
+        raise typer.Exit(1) from e
+    console.print(f"[green]전략 '{defn.id}' 생성 완료[/green]")
+    db.close()
+
+
+@app.command("strategy-show")
+def strategy_show_cmd(strategy_id: str = typer.Argument(..., help="조회할 전략 id")):
+    """전략 정의를 JSON으로 조회한다."""
+    db, svc = _open_workspace()
+    defn = svc.get_strategy(strategy_id)
+    db.close()
+    if defn is None:
+        console.print(f"[red]전략 '{strategy_id}'을(를) 찾을 수 없습니다[/red]")
+        raise typer.Exit(1)
+    console.print_json(json.dumps(defn.to_dict(), ensure_ascii=False))
+
+
+@app.command("strategy-edit")
+def strategy_edit_cmd(
+    strategy_id: str = typer.Argument(..., help="수정할 전략 id"),
+    input_source: str = typer.Argument(..., help="JSON 파일 경로 또는 '-'(stdin) — 전체 교체"),
+):
+    """전략 정의를 전체 JSON 교체로 수정한다(부분 필드 패치 없음)."""
+    from quant_krx._jsonnorm import DefinitionError
+    from quant_krx.strategy.definition import StrategyDefinition
+    from quant_krx.workspace.errors import WorkspaceError
+
+    db, svc = _open_workspace()
+    try:
+        defn = StrategyDefinition.from_dict(_read_json_input(input_source))
+        if defn.id != strategy_id:
+            db.close()
+            console.print(f"[red]JSON id '{defn.id}'가 인자 id '{strategy_id}'와 다릅니다[/red]")
+            raise typer.Exit(1)
+        svc.upsert_strategy(defn, now=datetime.utcnow())
+    except (DefinitionError, WorkspaceError, OSError, json.JSONDecodeError, KeyError) as e:
+        console.print(f"[red]{e}[/red]")
+        db.close()
+        raise typer.Exit(1) from e
+    console.print(f"[green]전략 '{strategy_id}' 수정 완료[/green]")
+    db.close()
+
+
+@app.command("strategy-delete")
+def strategy_delete_cmd(strategy_id: str = typer.Argument(..., help="삭제할 전략 id")):
+    """전략 정의를 삭제한다."""
+    from quant_krx.workspace.errors import WorkspaceError
+
+    db, svc = _open_workspace()
+    try:
+        svc.delete_strategy(strategy_id)
+    except WorkspaceError as e:
+        console.print(f"[red]{e}[/red]")
+        db.close()
+        raise typer.Exit(1) from e
+    console.print(f"[green]전략 '{strategy_id}' 삭제 완료[/green]")
+    db.close()
+
+
+@app.command("strategy-list")
+def strategy_list_cmd():
+    """저장된 전략 목록과 활성 상태를 표시한다."""
+    db, svc = _open_workspace()
+    strategies = svc.list_strategies()
+    active = set(svc.list_active())
+    db.close()
+    table = Table(title="전략 목록", show_lines=True)
+    table.add_column("id", style="bold")
+    table.add_column("name")
+    table.add_column("활성")
+    table.add_column("runnable")
+    for defn in strategies:
+        status = "[green]ON[/green]" if defn.id in active else "[dim]OFF[/dim]"
+        runnable = "Y" if defn.rule is not None else "N"
+        table.add_row(defn.id, defn.name, status, runnable)
+    console.print(table)
+
+
+@app.command("strategy-validate")
+def strategy_validate_cmd(strategy_id: str = typer.Argument(..., help="검증할 전략 id")):
+    """전략의 전이 검증을 실행 없이 수행한다."""
+    db, svc = _open_workspace()
+    defn = svc.get_strategy(strategy_id)
+    if defn is None:
+        db.close()
+        console.print(f"[red]전략 '{strategy_id}'을(를) 찾을 수 없습니다[/red]")
+        raise typer.Exit(1)
+    result = svc.validate_strategy(defn)
+    db.close()
+    if result.ok:
+        console.print(f"[green]전략 '{strategy_id}' 검증 통과[/green]")
+        return
+    console.print(f"[red]전략 '{strategy_id}' 검증 실패:[/red]")
+    for err in result.errors:
+        console.print(f"  - {err}")
+    raise typer.Exit(1)
+
+
+@app.command("strategy-activate")
+def strategy_activate_cmd(strategy_id: str = typer.Argument(..., help="활성화할 전략 id")):
+    """전략을 활성화한다(runnable + 검증 통과 전제, FR-04)."""
+    from quant_krx.workspace.errors import WorkspaceError
+
+    db, svc = _open_workspace()
+    try:
+        svc.activate(strategy_id, now=datetime.utcnow())
+    except WorkspaceError as e:
+        console.print(f"[red]{e}[/red]")
+        db.close()
+        raise typer.Exit(1) from e
+    console.print(f"[green]전략 '{strategy_id}' 활성화 완료[/green]")
+    db.close()
+
+
+@app.command("strategy-deactivate")
+def strategy_deactivate_cmd(strategy_id: str = typer.Argument(..., help="비활성화할 전략 id")):
+    """전략을 비활성화한다."""
+    db, svc = _open_workspace()
+    svc.deactivate(strategy_id, now=datetime.utcnow())
+    db.close()
+    console.print(f"[green]전략 '{strategy_id}' 비활성화 완료[/green]")
+
+
+@app.command("strategy-template-list")
+def strategy_template_list_cmd():
+    """Built-in/사용자 Template를 출처 구분과 함께 통합 열거한다."""
+    db, svc = _open_workspace()
+    infos = svc.list_templates()
+    db.close()
+    table = Table(title="Template 목록", show_lines=True)
+    table.add_column("template_id", style="bold")
+    table.add_column("출처")
+    table.add_column("name")
+    for info in infos:
+        table.add_row(info.template_id, info.origin, info.name)
+    console.print(table)
+
+
+@app.command("strategy-export")
+def strategy_export_cmd(
+    strategy_id: str = typer.Argument(..., help="내보낼 전략 id"),
+    output: str = typer.Option(None, "--output", "-o", help="출력 파일 경로(생략 시 stdout)"),
+):
+    """전략 + 전이 참조 Rule·Formula를 결정론적 JSON 번들로 내보낸다."""
+    from quant_krx._jsonnorm import canonical_json
+    from quant_krx.workspace.errors import WorkspaceError
+
+    db, svc = _open_workspace()
+    try:
+        bundle = svc.export_strategy(strategy_id)
+    except WorkspaceError as e:
+        console.print(f"[red]{e}[/red]")
+        db.close()
+        raise typer.Exit(1) from e
+    db.close()
+
+    body = canonical_json(bundle.to_dict())
+    if output:
+        Path(output).write_text(body)
+        console.print(f"[green]전략 '{strategy_id}' 번들을 '{output}'에 저장했습니다[/green]")
+    else:
+        console.print_json(body)
+
+
+@app.command("strategy-import")
+def strategy_import_cmd(
+    input_source: str = typer.Argument(..., help="JSON 파일 경로 또는 '-'(stdin)"),
+    overwrite: bool = typer.Option(
+        False, "--overwrite", help="id 충돌 시 대체(활성 참조 보호가 우선)"
+    ),
+):
+    """전략 JSON 번들을 위상 순서(Formula→Rule→Strategy)로 가져온다."""
+    from quant_krx._jsonnorm import DefinitionError
+    from quant_krx.workspace.errors import WorkspaceError
+    from quant_krx.workspace.templates import StrategyBundle
+
+    db, svc = _open_workspace()
+    try:
+        bundle = StrategyBundle.from_dict(_read_json_input(input_source))
+        svc.import_strategy(
+            bundle, now=datetime.utcnow(), on_conflict="overwrite" if overwrite else "reject"
+        )
+    except (DefinitionError, WorkspaceError, OSError, json.JSONDecodeError, KeyError) as e:
+        console.print(f"[red]{e}[/red]")
+        db.close()
+        raise typer.Exit(1) from e
+    console.print(f"[green]전략 '{bundle.strategy.id}' 가져오기 완료[/green]")
     db.close()
 
 

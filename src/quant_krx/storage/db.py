@@ -20,6 +20,7 @@ from quant_krx.strategy.validation import validate_definition_strict
 
 from .definition_schema import DEFINITION_SCHEMA_SQL
 from .schema import SCHEMA_SQL
+from .workspace_schema import WORKSPACE_SCHEMA_SQL
 
 
 class Database:
@@ -33,6 +34,7 @@ class Database:
         self._conn.execute(SCHEMA_SQL)
         self._conn.execute(FUNDAMENTAL_SCHEMA_SQL)
         self._conn.execute(DEFINITION_SCHEMA_SQL)
+        self._conn.execute(WORKSPACE_SCHEMA_SQL)
 
     def close(self) -> None:
         if self._conn:
@@ -277,3 +279,61 @@ class Database:
     def _delete_definition(self, table: str, id_: str) -> None:
         with self.cursor() as conn:
             conn.execute(f"DELETE FROM {table} WHERE id=?", [id_])
+
+    # --- strategy_activation (PRD-R03 FR-03) ---
+
+    def upsert_activation(self, strategy_id: str, *, active: bool, now: datetime) -> None:
+        with self.cursor() as conn:
+            conn.execute(
+                """INSERT OR REPLACE INTO strategy_activation (strategy_id, active, updated_at)
+                   VALUES (?, ?, ?)""",
+                [strategy_id, active, now],
+            )
+
+    def get_activation(self, strategy_id: str) -> bool:
+        """미존재 행 = 비활성(False)."""
+        with self.cursor() as conn:
+            row = conn.execute(
+                "SELECT active FROM strategy_activation WHERE strategy_id=?", [strategy_id]
+            ).fetchone()
+        return bool(row[0]) if row is not None else False
+
+    def list_active_strategy_ids(self) -> tuple[str, ...]:
+        with self.cursor() as conn:
+            rows = conn.execute(
+                "SELECT strategy_id FROM strategy_activation WHERE active=TRUE ORDER BY strategy_id"
+            ).fetchall()
+        return tuple(r[0] for r in rows)
+
+    # --- strategy_templates (PRD-R03 FR-21, 사용자 Template만 — Built-in은 코드 상수) ---
+
+    def upsert_template(self, template_id: str, *, name: str, bundle: dict, now: datetime) -> None:
+        with self.cursor() as conn:
+            existing = conn.execute(
+                "SELECT created_at FROM strategy_templates WHERE template_id=?", [template_id]
+            ).fetchone()
+            created_at = existing[0] if existing else now
+            conn.execute(
+                """INSERT OR REPLACE INTO strategy_templates
+                        (template_id, name, bundle, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?)""",
+                [template_id, name, json.dumps(bundle), created_at, now],
+            )
+
+    def get_template(self, template_id: str) -> dict | None:
+        with self.cursor() as conn:
+            row = conn.execute(
+                "SELECT bundle FROM strategy_templates WHERE template_id=?", [template_id]
+            ).fetchone()
+        return json.loads(row[0]) if row is not None else None
+
+    def list_templates(self) -> tuple[tuple[str, str], ...]:
+        with self.cursor() as conn:
+            rows = conn.execute(
+                "SELECT template_id, name FROM strategy_templates ORDER BY template_id"
+            ).fetchall()
+        return tuple((r[0], r[1]) for r in rows)
+
+    def delete_template(self, template_id: str) -> None:
+        with self.cursor() as conn:
+            conn.execute("DELETE FROM strategy_templates WHERE template_id=?", [template_id])

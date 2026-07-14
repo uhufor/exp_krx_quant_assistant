@@ -85,6 +85,10 @@ uv run python -m quant_krx validate-config
 
 ## 전략
 
+전략은 코드가 아니라 **선언형 데이터**(Formula/Rule/Strategy 정의 + `strategy-activate` 활성화)로
+구성됩니다. Daily는 활성 전략 집합만 실행하며(전략 원천 단일화), 최초 실행 시 아래 Built-in
+Template 5종이 자동으로 생성·활성화되어 끊김 없이 운영됩니다.
+
 | 이름 | 유형 | 핵심 아이디어 |
 |------|------|--------------|
 | `ma_crossover` | 추세 추종 | 단기(20일)/장기(60일) MA 골든·데드크로스 |
@@ -93,7 +97,9 @@ uv run python -m quant_krx validate-config
 | `macd` | 모멘텀 | 12/26 EMA 차이의 9일 시그널선 교차 |
 | `momentum` | 중장기 추세 | 12-1개월 가격 모멘텀 (Jegadeesh & Titman) |
 
-기본적으로 5개 전략 모두 활성화됩니다.
+전략 활성화·비활성화는 `strategy-activate`/`strategy-deactivate` CLI로 제어합니다(§No-Code
+Strategy Workspace 참고). 사용자 전략은 Formula/Rule을 조합해 직접 정의하거나 Template를
+복제(`strategy-create --template`)해 만들 수 있습니다.
 
 ## 팩터 플랫폼 (Factor Platform)
 
@@ -109,39 +115,19 @@ uv run python -m quant_krx validate-config
 
 ## 사용법
 
-### 전략 목록 확인
-
-```bash
-uv run python -m quant_krx list-strategies
-```
-
 ### Dry-run (알림 없이 테스트)
 
 ```bash
-# 전체 전략 실행
 LLM_MOCK=true uv run python -m quant_krx run-daily --dry-run
-
-# 특정 전략만 선택 (콤마 구분)
-LLM_MOCK=true uv run python -m quant_krx run-daily --dry-run --strategies ma_crossover,macd
 ```
+
+최초 실행 시 Built-in Template 5종이 자동으로 생성·활성화됩니다(전략 선택은
+`strategy-activate`/`strategy-deactivate`로 제어 — 아래 No-Code Strategy Workspace 참고).
 
 ### 실제 실행 (Telegram 발송)
 
 ```bash
 uv run python -m quant_krx run-daily --no-dry-run
-
-# 특정 전략만
-uv run python -m quant_krx run-daily --no-dry-run --strategies bollinger_band,momentum
-```
-
-### 상시 비활성화 (설정 파일)
-
-`.env` 에 원하는 전략만 지정하면 `--strategies` 없이도 해당 전략만 실행됩니다:
-
-```env
-# .env — 콤마 구분 또는 JSON 배열 형식 모두 지원
-ENABLED_STRATEGIES=ma_crossover,macd,bollinger_band
-# ENABLED_STRATEGIES=["ma_crossover","macd","bollinger_band"]
 ```
 
 ### 결과 리포트 조회
@@ -206,6 +192,52 @@ uv run python -m quant_krx fetch-fundamental --provider pykrx --kind valuation \
 
 멱등 수집이며, PK 중복·미래 일자·음수 필드 위반 행은 저장에서 제외되고 결과 표에
 제외 사유가 함께 표시됩니다.
+
+### No-Code Strategy Workspace (전략 워크스페이스)
+
+Formula(파생 지표)·Rule(조건)·Strategy(전략) 3종을 코드 없이 JSON 정의로 조합합니다.
+정의 입력은 JSON 파일 경로 또는 stdin(`-`)이며, 편집(`strategy-edit`)은 항상 **전체 정의
+교체**입니다(부분 필드 패치 없음).
+
+```bash
+# Formula/Rule 정의 CRUD
+uv run python -m quant_krx formula-create my_formula.json
+uv run python -m quant_krx formula-show my_formula
+uv run python -m quant_krx list-formulas
+uv run python -m quant_krx formula-delete my_formula
+
+uv run python -m quant_krx rule-create my_rule.json
+uv run python -m quant_krx rule-show my_rule
+uv run python -m quant_krx list-rules
+uv run python -m quant_krx rule-delete my_rule
+
+# Strategy 정의(신규 생성 또는 Built-in/사용자 Template 복제)
+uv run python -m quant_krx strategy-create my_strategy my_strategy.json
+uv run python -m quant_krx strategy-create my_ma --template ma_crossover
+uv run python -m quant_krx strategy-show my_strategy
+uv run python -m quant_krx strategy-list
+uv run python -m quant_krx strategy-edit my_strategy my_strategy_v2.json
+uv run python -m quant_krx strategy-delete my_strategy
+
+# 실행 없는 사전 검증 + 활성화(Daily 실행 집합 편입)
+uv run python -m quant_krx strategy-validate my_strategy
+uv run python -m quant_krx strategy-activate my_strategy
+uv run python -m quant_krx strategy-deactivate my_strategy
+
+# 백테스트(데이터 소스: fixture(기본) | fdr | pykrx)
+uv run python -m quant_krx strategy-backtest my_strategy --data-source fixture
+
+# Template 열거(Built-in + 사용자, 출처 구분)
+uv run python -m quant_krx strategy-template-list
+
+# Import/Export(전이 참조 Rule·Formula 포함 JSON 번들, 결정론 직렬화)
+uv run python -m quant_krx strategy-export my_strategy --output my_strategy_bundle.json
+uv run python -m quant_krx strategy-import my_strategy_bundle.json
+uv run python -m quant_krx strategy-import my_strategy_bundle.json --overwrite
+```
+
+활성 전략(과 그 전략이 참조 중인 Rule/Formula)의 수정·삭제는 거부됩니다 — 먼저
+`strategy-deactivate`로 비활성화해야 합니다.
 
 ## Mac mini 자동 실행 설정
 

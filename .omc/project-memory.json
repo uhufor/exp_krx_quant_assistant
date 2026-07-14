@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1783161679228,
+  "lastScanned": 1783957227551,
   "projectRoot": "/Users/uhufor/develop/step/quant-krx",
   "techStack": {
     "languages": [
@@ -25,7 +25,7 @@
   },
   "build": {
     "buildCommand": null,
-    "testCommand": "uv run python /private/tmp/claude-501/-Users-uhufor-develop-step-quant-krx/d49e288b-fcd8-4572-8edc-cce0290d26be/scratchpad/verify_benchmark_note.py 2>&1 | grep -E \"OK|벤치마크 행|초과수익률 행|^\\||^벤치마크|^- |모든\" && uv run pytest tests/ -q 2>&1 | tail -1 && uv run ruff check src/quant_krx/quant/ src/quant_krx/reports/ src/quant_krx/signals/ 2>&1 | tail -1",
+    "testCommand": "uv run pytest tests/ -q 2>&1 | tail -10 && echo \"=== ruff ===\" && uv run ruff check src/ tests/unit/workspace tests/unit/storage tests/integration/test_backtest_cli.py tests/integration/test_daily_declarative.py tests/integration/test_definition_cli.py 2>&1",
     "lintCommand": "ruff check",
     "devCommand": null,
     "scripts": {}
@@ -54,7 +54,7 @@
       "path": "config",
       "purpose": "Configuration files",
       "fileCount": 1,
-      "lastAccessed": 1783161679215,
+      "lastAccessed": 1783957227540,
       "keyFiles": [
         "watchlist.yaml"
       ]
@@ -63,53 +63,73 @@
       "path": "data",
       "purpose": "Data files",
       "fileCount": 2,
-      "lastAccessed": 1783161679216,
+      "lastAccessed": 1783957227540,
       "keyFiles": [
         "quant_krx.duckdb"
       ]
+    },
+    "epics": {
+      "path": "epics",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1783957227540,
+      "keyFiles": []
     },
     "logs": {
       "path": "logs",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1783161679217,
+      "lastAccessed": 1783957227541,
       "keyFiles": []
     },
     "old-base-v1": {
       "path": "old-base-v1",
       "purpose": null,
-      "fileCount": 1,
-      "lastAccessed": 1783161679218,
+      "fileCount": 0,
+      "lastAccessed": 1783957227541,
       "keyFiles": []
     },
     "ops": {
       "path": "ops",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1783161679218,
+      "lastAccessed": 1783957227541,
       "keyFiles": [
         "setup.sh"
+      ]
+    },
+    "refined_epics": {
+      "path": "refined_epics",
+      "purpose": null,
+      "fileCount": 10,
+      "lastAccessed": 1783957227541,
+      "keyFiles": [
+        "DESIGN-R01-FACTOR_PLATFORM.md",
+        "DESIGN-R02-DECLARATIVE_DEFINITION_CORE.md",
+        "DESIGN-R03-WORKSPACE_AND_EXECUTION.md",
+        "PRD-R01-FACTOR_PLATFORM.md",
+        "PRD-R02-DECLARATIVE_DEFINITION_CORE.md"
       ]
     },
     "reports": {
       "path": "reports",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1783161679218,
+      "lastAccessed": 1783957227541,
       "keyFiles": []
     },
     "src": {
       "path": "src",
       "purpose": "Source code",
       "fileCount": 0,
-      "lastAccessed": 1783161679219,
+      "lastAccessed": 1783957227542,
       "keyFiles": []
     },
     "tests": {
       "path": "tests",
       "purpose": "Test files",
       "fileCount": 1,
-      "lastAccessed": 1783161679219,
+      "lastAccessed": 1783957227542,
       "keyFiles": [
         "__init__.py"
       ]
@@ -117,258 +137,314 @@
     "tests/fixtures": {
       "path": "tests/fixtures",
       "purpose": "Test fixtures",
-      "fileCount": 1,
-      "lastAccessed": 1783161679220,
+      "fileCount": 3,
+      "lastAccessed": 1783957227543,
       "keyFiles": [
-        "sample_ohlcv.csv"
+        "sample_financials.csv",
+        "sample_ohlcv.csv",
+        "sample_valuation.csv"
       ]
     }
   },
   "hotPaths": [
     {
-      "path": "src/quant_krx/reports/report_b.py",
-      "accessCount": 38,
-      "lastAccessed": 1783163555864,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/reports/report_a.py",
-      "accessCount": 32,
-      "lastAccessed": 1783163548849,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/jobs/daily.py",
+      "path": "src/quant_krx/__main__.py",
       "accessCount": 28,
-      "lastAccessed": 1783162916943,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/config/settings.py",
-      "accessCount": 17,
-      "lastAccessed": 1783162610979,
+      "lastAccessed": 1783989946286,
       "type": "file"
     },
     {
       "path": "src/quant_krx/storage/db.py",
-      "accessCount": 12,
-      "lastAccessed": 1783162609646,
+      "accessCount": 17,
+      "lastAccessed": 1783987746439,
       "type": "file"
     },
     {
-      "path": "src/quant_krx/notify/telegram.py",
-      "accessCount": 12,
-      "lastAccessed": 1783162610008,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/quant/metrics.py",
-      "accessCount": 12,
-      "lastAccessed": 1783163627325,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/signals/classifier.py",
+      "path": "tests/unit/factors/test_purity_ast.py",
       "accessCount": 11,
-      "lastAccessed": 1783163519341,
+      "lastAccessed": 1783958800948,
       "type": "file"
     },
     {
-      "path": "src/quant_krx/quant/runner.py",
-      "accessCount": 10,
-      "lastAccessed": 1783162616352,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/reports/base.py",
+      "path": "src/quant_krx/factors/base.py",
       "accessCount": 9,
-      "lastAccessed": 1783162602750,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/__main__.py",
-      "accessCount": 9,
-      "lastAccessed": 1783162617777,
+      "lastAccessed": 1783873569179,
       "type": "file"
     },
     {
       "path": "README.md",
-      "accessCount": 8,
-      "lastAccessed": 1782920661814,
+      "accessCount": 9,
+      "lastAccessed": 1783964687394,
       "type": "file"
     },
     {
-      "path": "src/quant_krx/storage/schema.py",
+      "path": "src/quant_krx/factors/catalog/financial.py",
       "accessCount": 7,
-      "lastAccessed": 1783162622755,
+      "lastAccessed": 1783873460420,
       "type": "file"
     },
     {
-      "path": "src/quant_krx/quant/base.py",
+      "path": "src/quant_krx/factors/notes.py",
       "accessCount": 7,
-      "lastAccessed": 1783163484412,
+      "lastAccessed": 1783873546680,
       "type": "file"
     },
     {
-      "path": "src/quant_krx/data/fdr_adapter.py",
+      "path": "src/quant_krx/factors/registry.py",
+      "accessCount": 7,
+      "lastAccessed": 1783957566782,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/data/loader.py",
+      "accessCount": 7,
+      "lastAccessed": 1783961908997,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/factors/asof.py",
       "accessCount": 6,
-      "lastAccessed": 1783162616765,
+      "lastAccessed": 1783872868575,
       "type": "file"
     },
     {
-      "path": "tests/integration/test_daily_job.py",
+      "path": "src/quant_krx/factors/catalog/valuation.py",
       "accessCount": 6,
-      "lastAccessed": 1783162958720,
+      "lastAccessed": 1783873331673,
       "type": "file"
     },
     {
-      "path": "src/quant_krx/storage/validation.py",
-      "accessCount": 5,
-      "lastAccessed": 1783162617746,
+      "path": "src/quant_krx/factors/errors.py",
+      "accessCount": 6,
+      "lastAccessed": 1783957567486,
       "type": "file"
     },
     {
-      "path": "src/quant_krx/quant/strategies/momentum.py",
-      "accessCount": 5,
-      "lastAccessed": 1783162624507,
+      "path": "src/quant_krx/_jsonnorm.py",
+      "accessCount": 6,
+      "lastAccessed": 1783959024766,
       "type": "file"
     },
     {
-      "path": "src/quant_krx/quant/strategies/ma_crossover.py",
-      "accessCount": 4,
-      "lastAccessed": 1782921094273,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/quant/strategies/rsi_breakout.py",
-      "accessCount": 4,
-      "lastAccessed": 1782921103606,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/quant/strategies/bollinger.py",
-      "accessCount": 4,
-      "lastAccessed": 1782921112291,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/quant/strategies/macd.py",
-      "accessCount": 4,
-      "lastAccessed": 1782921119342,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/llm/factory.py",
-      "accessCount": 4,
-      "lastAccessed": 1783162629113,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/llm/mock_provider.py",
-      "accessCount": 4,
-      "lastAccessed": 1783162724679,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/notify/outbox.py",
-      "accessCount": 3,
-      "lastAccessed": 1782908554918,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/data/base.py",
-      "accessCount": 3,
-      "lastAccessed": 1782910696312,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/llm/anthropic_provider.py",
-      "accessCount": 3,
-      "lastAccessed": 1783162629569,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/llm/base.py",
-      "accessCount": 2,
-      "lastAccessed": 1782831226363,
-      "type": "file"
-    },
-    {
-      "path": "src/quant_krx/storage/__init__.py",
-      "accessCount": 2,
-      "lastAccessed": 1782831580008,
+      "path": "src/quant_krx/formula/definition.py",
+      "accessCount": 6,
+      "lastAccessed": 1783959033994,
       "type": "file"
     },
     {
       "path": "CLAUDE.md",
-      "accessCount": 2,
-      "lastAccessed": 1782833097897,
+      "accessCount": 5,
+      "lastAccessed": 1783872688418,
       "type": "file"
     },
     {
-      "path": "config/watchlist.yaml",
-      "accessCount": 2,
-      "lastAccessed": 1782835252730,
+      "path": "refined_epics/DESIGN-R01-FACTOR_PLATFORM.md",
+      "accessCount": 5,
+      "lastAccessed": 1783873260044,
       "type": "file"
     },
     {
-      "path": "src/quant_krx/quant/strategies/__init__.py",
-      "accessCount": 2,
-      "lastAccessed": 1782838158676,
+      "path": "src/quant_krx/factors/kernels.py",
+      "accessCount": 5,
+      "lastAccessed": 1783873276399,
       "type": "file"
     },
     {
-      "path": "tests/unit/test_validation.py",
-      "accessCount": 2,
-      "lastAccessed": 1782839461095,
+      "path": "src/quant_krx/data/schema.py",
+      "accessCount": 5,
+      "lastAccessed": 1783958480093,
       "type": "file"
     },
     {
-      "path": "tests/unit/test_reports.py",
-      "accessCount": 2,
-      "lastAccessed": 1782914353572,
+      "path": "src/quant_krx/data/quality.py",
+      "accessCount": 4,
+      "lastAccessed": 1783872902725,
       "type": "file"
     },
     {
-      "path": "tests/unit/test_signals.py",
-      "accessCount": 2,
-      "lastAccessed": 1782921184974,
+      "path": "src/quant_krx/factors/catalog/technical.py",
+      "accessCount": 4,
+      "lastAccessed": 1783958094757,
       "type": "file"
     },
     {
-      "path": "src/quant_krx/data/pykrx_adapter.py",
-      "accessCount": 2,
-      "lastAccessed": 1783162630057,
+      "path": "tests/unit/factors/test_types_and_registry.py",
+      "accessCount": 3,
+      "lastAccessed": 1783870037424,
       "type": "file"
     },
     {
-      "path": "src/quant_krx/llm/openai_provider.py",
-      "accessCount": 2,
-      "lastAccessed": 1783162687539,
+      "path": "src/quant_krx/factors/catalog/__init__.py",
+      "accessCount": 3,
+      "lastAccessed": 1783871869392,
       "type": "file"
     },
     {
-      "path": "src/quant_krx/config/profiles.py",
+      "path": "tests/unit/factors/test_catalog_valuation.py",
+      "accessCount": 3,
+      "lastAccessed": 1783871961743,
+      "type": "file"
+    },
+    {
+      "path": "tests/unit/factors/test_catalog_financial.py",
+      "accessCount": 3,
+      "lastAccessed": 1783872989205,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/factors/metadata.py",
+      "accessCount": 3,
+      "lastAccessed": 1783957567119,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/factors/dispatch.py",
+      "accessCount": 3,
+      "lastAccessed": 1783957568220,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/formula/__init__.py",
+      "accessCount": 3,
+      "lastAccessed": 1783959148199,
+      "type": "file"
+    },
+    {
+      "path": "tests/unit/factors/test_catalog_technical.py",
+      "accessCount": 2,
+      "lastAccessed": 1783870032889,
+      "type": "file"
+    },
+    {
+      "path": "tests/unit/factors/test_asof_and_kernels.py",
+      "accessCount": 2,
+      "lastAccessed": 1783871540633,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/data/pykrx_fundamental.py",
+      "accessCount": 2,
+      "lastAccessed": 1783872163588,
+      "type": "file"
+    },
+    {
+      "path": "refined_epics/PRD-R01-FACTOR_PLATFORM.md",
+      "accessCount": 2,
+      "lastAccessed": 1783872848749,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/data/upsert.py",
+      "accessCount": 2,
+      "lastAccessed": 1783872903306,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/data/fixture_fundamental.py",
+      "accessCount": 2,
+      "lastAccessed": 1783872956466,
+      "type": "file"
+    },
+    {
+      "path": "tests/integration/test_factor_catalog_against_fixtures.py",
+      "accessCount": 2,
+      "lastAccessed": 1783872988214,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/factors/__init__.py",
+      "accessCount": 2,
+      "lastAccessed": 1783957568607,
+      "type": "file"
+    },
+    {
+      "path": "refined_epics/PRD-R02-DECLARATIVE_DEFINITION_CORE.md",
+      "accessCount": 2,
+      "lastAccessed": 1783959017154,
+      "type": "file"
+    },
+    {
+      "path": "refined_epics/DESIGN-R02-DECLARATIVE_DEFINITION_CORE.md",
+      "accessCount": 2,
+      "lastAccessed": 1783959018001,
+      "type": "file"
+    },
+    {
+      "path": "refined_epics/TRD-R02-DECLARATIVE_DEFINITION_CORE.md",
+      "accessCount": 2,
+      "lastAccessed": 1783959022429,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/formula/errors.py",
+      "accessCount": 2,
+      "lastAccessed": 1783959148015,
+      "type": "file"
+    },
+    {
+      "path": "refined_epics/TRD-R01-FACTOR_PLATFORM.md",
       "accessCount": 1,
-      "lastAccessed": 1782757187400,
+      "lastAccessed": 1783868641793,
       "type": "file"
     },
     {
-      "path": "tests/integration/test_storage.py",
+      "path": "tests/unit/factors/__init__.py",
       "accessCount": 1,
-      "lastAccessed": 1782757308042,
+      "lastAccessed": 1783869917684,
       "type": "file"
     },
     {
-      "path": "src/quant_krx/quant/__init__.py",
+      "path": "tests/unit/data/__init__.py",
       "accessCount": 1,
-      "lastAccessed": 1782838160976,
+      "lastAccessed": 1783869918408,
       "type": "file"
     },
     {
-      "path": "src/quant_krx/data/fixture_adapter.py",
+      "path": "src/quant_krx/data/fundamental_base.py",
       "accessCount": 1,
-      "lastAccessed": 1782910695776,
+      "lastAccessed": 1783870901392,
+      "type": "file"
+    },
+    {
+      "path": "tests/unit/data/test_fundamental_schema_and_loader.py",
+      "accessCount": 1,
+      "lastAccessed": 1783870993757,
+      "type": "file"
+    },
+    {
+      "path": "src/quant_krx/data/dart_fundamental.py",
+      "accessCount": 1,
+      "lastAccessed": 1783872170841,
+      "type": "file"
+    },
+    {
+      "path": "tests/unit/data/test_upsert_and_quality.py",
+      "accessCount": 1,
+      "lastAccessed": 1783872218501,
+      "type": "file"
+    },
+    {
+      "path": "tests/unit/data/test_fundamental_adapters.py",
+      "accessCount": 1,
+      "lastAccessed": 1783872262107,
+      "type": "file"
+    },
+    {
+      "path": "tests/integration/test_factor_cli.py",
+      "accessCount": 1,
+      "lastAccessed": 1783872571880,
+      "type": "file"
+    },
+    {
+      "path": "tests/unit/factors/test_ac_full_catalog.py",
+      "accessCount": 1,
+      "lastAccessed": 1783872748346,
+      "type": "file"
+    },
+    {
+      "path": "tests/unit/definition/test_jsonnorm.py",
+      "accessCount": 1,
+      "lastAccessed": 1783957830596,
       "type": "file"
     }
   ],
