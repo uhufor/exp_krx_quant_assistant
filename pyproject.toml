@@ -23,7 +23,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "pyarrow>=18.0.0",
     "pyyaml>=6.0.0",
-    "setuptools>=82.0.1",
+    "setuptools>=70,<82",
 ]
 
 [project.optional-dependencies]
