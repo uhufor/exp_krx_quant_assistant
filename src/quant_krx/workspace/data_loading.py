@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 
@@ -19,6 +19,42 @@ def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
     return result[["open", "high", "low", "close", "volume"]].astype(float)
 
 
+def _existing_valuation_coverage(
+    conn, symbols: list[str]
+) -> dict[str, tuple[date, date]]:
+    """symbol별 fundamental_daily 기존 커버리지(min/max date)를 조회한다."""
+    if not symbols:
+        return {}
+    df = conn.execute(
+        "SELECT symbol, MIN(date) AS min_date, MAX(date) AS max_date "
+        "FROM fundamental_daily WHERE symbol = ANY(?) GROUP BY symbol",
+        [symbols],
+    ).df()
+    return {
+        row["symbol"]: (pd.Timestamp(row["min_date"]).date(), pd.Timestamp(row["max_date"]).date())
+        for _, row in df.iterrows()
+    }
+
+
+def _gap_ranges(
+    existing: tuple[date, date] | None, start: date, end: date
+) -> list[tuple[date, date]]:
+    """요청 구간[start, end] 중 기존 커버리지 밖(이전/이후)만 반환한다.
+
+    기존 구간 내부(거래 캘린더상 자연스러운 결측 제외)는 재수집하지 않는다 — 이미 있는
+    데이터는 건드리지 않고, 경계 바깥의 부족분만 최소로 채운다.
+    """
+    if existing is None:
+        return [(start, end)]
+    existing_min, existing_max = existing
+    gaps: list[tuple[date, date]] = []
+    if start < existing_min:
+        gaps.append((start, min(existing_min - timedelta(days=1), end)))
+    if end > existing_max:
+        gaps.append((max(existing_max + timedelta(days=1), start), end))
+    return gaps
+
+
 def fetch_and_upsert_fundamentals(
     db: Database,
     symbols: list[str],
@@ -33,12 +69,24 @@ def fetch_and_upsert_fundamentals(
 
     R01 FundamentalProvider·upsert_fundamental 단일 강제점·품질 게이트 경로를 그대로
     재사용하며(fetch-fundamental CLI와 동일 경로), 신규 수집 로직을 두지 않는다.
+
+    valuation은 symbol별 기존 fundamental_daily 커버리지를 조회해, 요청 구간 중 이미
+    확보된 부분은 건너뛰고 경계 바깥(이전/이후)만 증분 수집한다(라이브 provider 호출
+    최소화 — PyKrx처럼 재로그인·개인 자격증명이 필요한 provider에서 중요).
+    financials는 PK가 날짜 축이 아니므로(fiscal_year/quarter) 기존 방식(전체 재수집)을
+    유지한다.
     """
     with db.cursor() as conn:
         if "valuation" in kinds:
-            frame = provider.fetch_valuation(symbols, start, end)
-            frame = frame.assign(source=provider.source_name, fetched_at=datetime.utcnow())
-            upsert_fundamental(conn, "fundamental_daily", frame, as_of=as_of)
+            coverage = _existing_valuation_coverage(conn, symbols)
+            grouped: dict[tuple[date, date], list[str]] = {}
+            for symbol in symbols:
+                for gap in _gap_ranges(coverage.get(symbol), start, end):
+                    grouped.setdefault(gap, []).append(symbol)
+            for (gap_start, gap_end), gap_symbols in grouped.items():
+                frame = provider.fetch_valuation(gap_symbols, gap_start, gap_end)
+                frame = frame.assign(source=provider.source_name, fetched_at=datetime.utcnow())
+                upsert_fundamental(conn, "fundamental_daily", frame, as_of=as_of)
         if "financials" in kinds:
             frame = provider.fetch_financials(symbols, start, end)
             frame = frame.assign(source=provider.source_name, fetched_at=datetime.utcnow())

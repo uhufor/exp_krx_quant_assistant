@@ -48,3 +48,39 @@ def test_dart_adapter_raises_not_implemented_for_both_methods():
         adapter.fetch_valuation(["005930"], date(2024, 1, 1), date(2024, 1, 31))
     with pytest.raises(NotImplementedError, match="Deferred"):
         adapter.fetch_financials(["005930"], date(2024, 1, 1), date(2024, 1, 31))
+
+
+def test_fetch_valuation_raises_without_krx_credentials(monkeypatch):
+    monkeypatch.delenv("KRX_ID", raising=False)
+    monkeypatch.delenv("KRX_PW", raising=False)
+    adapter = PyKrxFundamentalAdapter()
+    with pytest.raises(RuntimeError, match="KRX"):
+        adapter.fetch_valuation(["005930"], date(2024, 1, 1), date(2024, 1, 31))
+
+
+def test_fetch_valuation_skips_empty_response_when_credentials_present(monkeypatch):
+    """자격증명은 있는데 특정 구간(예: 당일 미발표)이 빈 응답이면 하드 실패하지 않는다."""
+    monkeypatch.setenv("KRX_ID", "dummy")
+    monkeypatch.setenv("KRX_PW", "dummy")
+
+    class _EmptyStock:
+        def get_market_fundamental_by_date(self, start, end, symbol):
+            return pd.DataFrame()
+
+        def get_market_cap_by_date(self, start, end, symbol):
+            return pd.DataFrame()
+
+        def get_market_ohlcv_by_date(self, start, end, symbol):
+            return pd.DataFrame()
+
+    monkeypatch.setattr(
+        "quant_krx.data.pykrx_fundamental._krx_stock", lambda: _EmptyStock()
+    )
+    adapter = PyKrxFundamentalAdapter()
+    result = adapter.fetch_valuation(["005930"], date(2026, 7, 16), date(2026, 7, 16))
+
+    assert result.empty
+    assert set(result.columns) == {
+        "symbol", "date", "close", "per", "pbr", "eps", "bps", "div", "dps",
+        "market_cap", "shares",
+    }

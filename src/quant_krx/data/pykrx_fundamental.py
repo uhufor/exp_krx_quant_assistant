@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 from datetime import date
 
@@ -23,11 +24,19 @@ class PyKrxFundamentalAdapter:
         return "PyKrx"
 
     def fetch_valuation(self, symbols: Sequence[str], start: date, end: date) -> pd.DataFrame:
+        # KRX_ID/KRX_PW 미설정은 확정적 설정 오류이므로 즉시 명확하게 실패시킨다. 반면
+        # 자격증명이 있는데도 특정 구간(예: 당일 — KRX가 장마감 후 배치로 발행)이 빈
+        # 응답이면 그건 로그인 문제가 아니라 "아직 미발표"이므로 하드 실패시키지 않고
+        # 건너뛴다 — 결측은 NaN으로 자연 처리하는 이 프로젝트의 기존 원칙과 동일하다.
+        if not (os.getenv("KRX_ID") and os.getenv("KRX_PW")):
+            raise RuntimeError(
+                "PyKrx 밸류에이션/시가총액 조회에는 KRX(data.krx.co.kr) 로그인이 필요합니다. "
+                "환경변수 KRX_ID/KRX_PW를 설정하세요."
+            )
         s = _krx_stock()
         start_str = start.strftime("%Y%m%d")
         end_str = end.strftime("%Y%m%d")
         frames = []
-        empty_response_count = 0
         for symbol in symbols:
             try:
                 fundamental = s.get_market_fundamental_by_date(start_str, end_str, symbol)
@@ -36,20 +45,11 @@ class PyKrxFundamentalAdapter:
             except Exception:
                 continue
             if fundamental.empty or cap.empty:
-                # KRX(data.krx.co.kr)가 비로그인 세션에 빈 응답을 반환하는 경우(REQ-KRX-AUTH).
-                # 병합 단계에서 컬럼 부재로 KeyError가 나는 대신 원인을 즉시 식별한다.
-                empty_response_count += 1
                 continue
             merged = self._merge_valuation(symbol, fundamental, cap, ohlcv)
             if not merged.empty:
                 frames.append(merged)
         if not frames:
-            if empty_response_count > 0:
-                raise RuntimeError(
-                    "PyKrx가 밸류에이션/시가총액 데이터를 빈 응답으로 반환했습니다. "
-                    "KRX(data.krx.co.kr) 로그인 세션이 필요할 수 있습니다 — "
-                    "환경변수 KRX_ID/KRX_PW가 설정되어 있고 유효한지 확인하세요."
-                )
             return pd.DataFrame(
                 columns=[
                     "symbol", "date", "close", "per", "pbr", "eps", "bps", "div",

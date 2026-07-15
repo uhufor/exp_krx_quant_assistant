@@ -469,9 +469,16 @@ uv run python -m quant_krx strategy-backtest STRATEGY_ID [옵션들]
 | `--data-source` | OHLCV 데이터 소스: `fixture`(오프라인 합성) \| `fdr` \| `pykrx` | `fixture` |
 | `--benchmark` | 벤치마크 심볼/시장(예: `KOSPI`) — 지정 시 벤치마크 수익률·초과수익률을 함께 산출. 수집 실패는 경고만 남기고 백테스트는 계속 진행 | 없음 |
 
-전략이 밸류에이션/재무제표 팩터를 참조하면 지정한 `--data-source`에 맞는 펀더멘털
-provider로 자동 선행 수집된다. 종목이 2개 이상이면 표 제목에 대표 종목(첫 번째
-심볼)이 표기되고, 종목별 상세 지표는 `report.per_symbol`을 통해 별도 확인한다.
+전략이 밸류에이션/재무제표 팩터를 참조하면 펀더멘털 provider(`fixture`→
+`FixtureFundamentalAdapter`, `fdr`/`pykrx`→`PyKrxFundamentalAdapter`)로 자동 선행
+수집된다. 이때 `fundamental_daily`에 symbol별로 이미 저장된 날짜 범위(min~max)를
+조회해, 요청 구간 중 **이미 커버된 부분은 재수집하지 않고 경계 바깥(이전/이후)의
+부족분만 증분 수집**한다 — 예를 들어 1~6월을 이미 받아둔 뒤 1~12월로 백테스트하면
+7~12월만 추가로 fetch된다. `--data-source pykrx`처럼 개인 자격증명(KRX 로그인)이
+필요한 provider에서 불필요한 재호출을 피하기 위한 설계다(경계 내부의 결측은 거래
+캘린더상 자연 휴장일로 간주해 채우지 않는다). 종목이 2개 이상이면 표 제목에 대표
+종목(첫 번째 심볼)이 표기되고, 종목별 상세 지표는 `report.per_symbol`을 통해 별도
+확인한다.
 
 ```bash
 uv run python -m quant_krx strategy-backtest my_strategy --data-source fixture
