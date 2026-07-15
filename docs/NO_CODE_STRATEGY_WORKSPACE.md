@@ -495,3 +495,265 @@ uv run python -m quant_krx strategy-backtest my_strategy --data-source fixture -
 
 사용자 전략은 Formula/Rule을 조합해 직접 정의하거나 Template를 복제
 (`strategy-create --template`)해 만들 수 있습니다.
+
+---
+
+## End-to-End 예제: 삼성전자 퀄리티-밸류 전략
+
+펀더멘털 팩터 2종(`per`, `roe_approx`)을 선정해 Formula 3개·Rule 2개를 새로
+만들고, 이를 조합한 전략을 삼성전자(`005930`)에 백테스트하는 전 과정이다.
+아래 명령어와 JSON은 실제로 실행해 검증했다(Fixture 데이터, `strategy-backtest`
+결과 거래 8회 발생 확인).
+
+### Step 1 — 펀더멘털 팩터 2종 선정
+
+`per`(주가수익비율, `value` 카테고리)와 `roe_approx`(ROE 근사치, `quality`
+카테고리)를 선정한다. 둘 다 `required_data=valuation`이라 `fetch-fundamental`로
+밸류에이션 데이터를 먼저 확보해야 한다.
+
+```bash
+uv run python -m quant_krx show-factor per
+uv run python -m quant_krx show-factor roe_approx
+```
+
+### Step 2 — 펀더멘털 데이터 수집
+
+```bash
+uv run python -m quant_krx fetch-fundamental --provider fixture --symbols 005930 --kind valuation
+```
+
+### Step 3 — Formula 3종 생성
+
+**① `value_quality_score`** — `roe_approx / per`. 값이 클수록 이익 대비
+저평가(낮은 PER)이면서 수익성(ROE)이 높다는 뜻이다.
+
+```json
+{
+  "id": "value_quality_score",
+  "name": "퀄리티-밸류 스코어",
+  "version": "1",
+  "expression": {
+    "node": "binary",
+    "op": "/",
+    "left": {"kind": "factor", "factor_id": "roe_approx", "column": "roe_approx", "params": {}},
+    "right": {"kind": "factor", "factor_id": "per", "column": "per", "params": {}}
+  },
+  "output_column": "value"
+}
+```
+
+**② `per_premium_gap`** — `per - 10`. 가정한 업종 평균 PER(10배) 대비
+프리미엄/할인 폭.
+
+```json
+{
+  "id": "per_premium_gap",
+  "name": "PER 프리미엄 갭",
+  "version": "1",
+  "expression": {
+    "node": "binary",
+    "op": "-",
+    "left": {"kind": "factor", "factor_id": "per", "column": "per", "params": {}},
+    "right": {"kind": "constant", "value": 10}
+  },
+  "output_column": "value"
+}
+```
+
+**③ `quality_price_composite`** — `(roe_approx * 100) - per`. ROE(%)에서
+PER을 차감한 합성 스코어로, 값이 클수록 매력적인 종목으로 본다.
+
+```json
+{
+  "id": "quality_price_composite",
+  "name": "퀄리티-프라이스 합성 스코어",
+  "version": "1",
+  "expression": {
+    "node": "binary",
+    "op": "-",
+    "left": {
+      "node": "binary",
+      "op": "*",
+      "left": {"kind": "factor", "factor_id": "roe_approx", "column": "roe_approx", "params": {}},
+      "right": {"kind": "constant", "value": 100}
+    },
+    "right": {"kind": "factor", "factor_id": "per", "column": "per", "params": {}}
+  },
+  "output_column": "value"
+}
+```
+
+```bash
+uv run python -m quant_krx formula-create value_quality_score.json
+uv run python -m quant_krx formula-create per_premium_gap.json
+uv run python -m quant_krx formula-create quality_price_composite.json
+```
+
+### Step 4 — Rule 2종 생성
+
+**① `qv_entry`(진입, AND 3항)** — 두 펀더멘털 필터(①·③번 Formula)를 모두
+통과하면서, 동시에 단기(5일)/중기(20일) 이동평균이 골든크로스(`crosses_above`)한
+날에 진입한다. 펀더멘털이 "매력적인 종목인가"를 걸러내고, 기술적 크로스가
+"언제 살 것인가" 타이밍을 정하는 조합이다.
+
+```json
+{
+  "id": "qv_entry",
+  "name": "퀄리티-밸류 진입",
+  "version": "1",
+  "root": {
+    "node": "composition",
+    "op": "AND",
+    "operands": [
+      {
+        "node": "predicate",
+        "left": {"kind": "formula", "formula_id": "value_quality_score", "column": "value"},
+        "operator": ">",
+        "right": {"kind": "constant", "value": 0.005}
+      },
+      {
+        "node": "predicate",
+        "left": {"kind": "formula", "formula_id": "quality_price_composite", "column": "value"},
+        "operator": ">",
+        "right": {"kind": "constant", "value": -1}
+      },
+      {
+        "node": "predicate",
+        "left": {"kind": "factor", "factor_id": "sma", "column": "sma", "params": {"window": 5}},
+        "operator": "crosses_above",
+        "right": {"kind": "factor", "factor_id": "sma", "column": "sma", "params": {"window": 20}}
+      }
+    ]
+  }
+}
+```
+
+**② `qv_exit`(청산, OR 2항)** — PER 프리미엄이 5배를 초과해 과열되었거나
+(②번 Formula), 이동평균이 데드크로스(`crosses_below`)하면 청산한다.
+
+```json
+{
+  "id": "qv_exit",
+  "name": "퀄리티-밸류 청산",
+  "version": "1",
+  "root": {
+    "node": "composition",
+    "op": "OR",
+    "operands": [
+      {
+        "node": "predicate",
+        "left": {"kind": "formula", "formula_id": "per_premium_gap", "column": "value"},
+        "operator": ">",
+        "right": {"kind": "constant", "value": 5}
+      },
+      {
+        "node": "predicate",
+        "left": {"kind": "factor", "factor_id": "sma", "column": "sma", "params": {"window": 5}},
+        "operator": "crosses_below",
+        "right": {"kind": "factor", "factor_id": "sma", "column": "sma", "params": {"window": 20}}
+      }
+    ]
+  }
+}
+```
+
+```bash
+uv run python -m quant_krx rule-create qv_entry.json
+uv run python -m quant_krx rule-create qv_exit.json
+```
+
+### Step 5 — 전략 조합·생성
+
+`factor_refs`는 Rule/Formula가 전이 참조하는 factor id 집합과 정확히 일치해야
+한다(`strategy-validate`가 누락/잉여를 검사) — 여기서는 `per`, `roe_approx`,
+그리고 진입/청산 타이밍에 쓰인 `sma` 세 개다.
+
+```json
+{
+  "id": "qv_samsung_strategy",
+  "name": "삼성전자 퀄리티-밸류 전략",
+  "version": "1",
+  "factor_refs": [
+    {"factor_id": "per", "params": {}},
+    {"factor_id": "roe_approx", "params": {}},
+    {"factor_id": "sma", "params": {}}
+  ],
+  "universe": {"symbols": ["005930"]},
+  "rule": {"roles": {"entry": ["qv_entry"], "exit": ["qv_exit"]}}
+}
+```
+
+```bash
+uv run python -m quant_krx strategy-create qv_samsung_strategy qv_samsung_strategy.json
+```
+
+### Step 6 — 사전 검증
+
+```bash
+uv run python -m quant_krx strategy-validate qv_samsung_strategy
+# → 전략 'qv_samsung_strategy' 검증 통과
+```
+
+### Step 7 — 삼성전자 백테스트
+
+```bash
+uv run python -m quant_krx strategy-backtest qv_samsung_strategy \
+    --symbols 005930 --data-source fixture --benchmark KOSPI
+```
+
+Fixture 데이터 기준 실행 결과(재현 가능):
+
+| 지표 | 값 |
+|---|---|
+| 총수익률 | -5.64% |
+| MDD | 22.39% |
+| Sharpe | -0.249 |
+| 승률 | 25.00% |
+| 거래 횟수 | 8 |
+| 벤치마크 수익률(KOSPI) | 5.69% |
+| 초과수익률 | -11.32% |
+
+### 전체 흐름 다이어그램
+
+```mermaid
+flowchart TD
+    subgraph S1["Step 1-2. 팩터 선정 및 데이터 수집"]
+        A1["show-factor per / roe_approx"] --> A2["fetch-fundamental<br/>--provider fixture --symbols 005930"]
+    end
+
+    subgraph S2["Step 3. Formula 3종 생성"]
+        F1["value_quality_score<br/>roe_approx / per"]
+        F2["per_premium_gap<br/>per - 10"]
+        F3["quality_price_composite<br/>roe_approx*100 - per"]
+    end
+
+    subgraph S3["Step 4. Rule 2종 생성"]
+        R1["qv_entry (AND)<br/>F1 gt 0.005 AND F3 gt -1<br/>AND sma5 crosses_above sma20"]
+        R2["qv_exit (OR)<br/>F2 gt 5 OR<br/>sma5 crosses_below sma20"]
+    end
+
+    subgraph S4["Step 5-6. 전략 조합·검증"]
+        ST["qv_samsung_strategy<br/>factor_refs: per, roe_approx, sma<br/>universe: 005930"]
+        V["strategy-validate"]
+    end
+
+    subgraph S5["Step 7. 백테스트"]
+        B["strategy-backtest<br/>--symbols 005930 --benchmark KOSPI"]
+        RPT["report.metrics<br/>거래 8회 / 승률 25% / 초과수익률 -11.32%"]
+    end
+
+    A2 --> F1
+    A2 --> F2
+    A2 --> F3
+    F1 --> R1
+    F3 --> R1
+    F2 --> R2
+    F1 -. formula 참조 .-> ST
+    F2 -. formula 참조 .-> ST
+    F3 -. formula 참조 .-> ST
+    R1 --> ST
+    R2 --> ST
+    ST --> V
+    V --> B
+    B --> RPT
+```

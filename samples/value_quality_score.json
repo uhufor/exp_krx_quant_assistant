@@ -1,0 +1,12 @@
+{
+  "id": "value_quality_score",
+  "name": "퀄리티-밸류 스코어",
+  "version": "1",
+  "expression": {
+    "node": "binary",
+    "op": "/",
+    "left": {"kind": "factor", "factor_id": "roe_approx", "column": "roe_approx", "params": {}},
+    "right": {"kind": "factor", "factor_id": "per", "column": "per", "params": {}}
+  },
+  "output_column": "value"
+}

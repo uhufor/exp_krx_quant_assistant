@@ -1,0 +1,23 @@
+{
+  "id": "qv_exit",
+  "name": "퀄리티-밸류 청산",
+  "version": "1",
+  "root": {
+    "node": "composition",
+    "op": "OR",
+    "operands": [
+      {
+        "node": "predicate",
+        "left": {"kind": "formula", "formula_id": "per_premium_gap", "column": "value"},
+        "operator": ">",
+        "right": {"kind": "constant", "value": 5}
+      },
+      {
+        "node": "predicate",
+        "left": {"kind": "factor", "factor_id": "sma", "column": "sma", "params": {"window": 5}},
+        "operator": "crosses_below",
+        "right": {"kind": "factor", "factor_id": "sma", "column": "sma", "params": {"window": 20}}
+      }
+    ]
+  }
+}

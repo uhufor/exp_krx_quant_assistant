@@ -1,0 +1,12 @@
+{
+  "id": "qv_samsung_strategy",
+  "name": "삼성전자 퀄리티-밸류 전략",
+  "version": "1",
+  "factor_refs": [
+    {"factor_id": "per", "params": {}},
+    {"factor_id": "roe_approx", "params": {}},
+    {"factor_id": "sma", "params": {}}
+  ],
+  "universe": {"symbols": ["005930"]},
+  "rule": {"roles": {"entry": ["qv_entry"], "exit": ["qv_exit"]}}
+}

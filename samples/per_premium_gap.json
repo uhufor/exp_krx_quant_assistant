@@ -1,0 +1,12 @@
+{
+  "id": "per_premium_gap",
+  "name": "PER 프리미엄 갭",
+  "version": "1",
+  "expression": {
+    "node": "binary",
+    "op": "-",
+    "left": {"kind": "factor", "factor_id": "per", "column": "per", "params": {}},
+    "right": {"kind": "constant", "value": 10}
+  },
+  "output_column": "value"
+}

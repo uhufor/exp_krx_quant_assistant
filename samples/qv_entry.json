@@ -1,0 +1,29 @@
+{
+  "id": "qv_entry",
+  "name": "퀄리티-밸류 진입",
+  "version": "1",
+  "root": {
+    "node": "composition",
+    "op": "AND",
+    "operands": [
+      {
+        "node": "predicate",
+        "left": {"kind": "formula", "formula_id": "value_quality_score", "column": "value"},
+        "operator": ">",
+        "right": {"kind": "constant", "value": 0.005}
+      },
+      {
+        "node": "predicate",
+        "left": {"kind": "formula", "formula_id": "quality_price_composite", "column": "value"},
+        "operator": ">",
+        "right": {"kind": "constant", "value": -1}
+      },
+      {
+        "node": "predicate",
+        "left": {"kind": "factor", "factor_id": "sma", "column": "sma", "params": {"window": 5}},
+        "operator": "crosses_above",
+        "right": {"kind": "factor", "factor_id": "sma", "column": "sma", "params": {"window": 20}}
+      }
+    ]
+  }
+}
