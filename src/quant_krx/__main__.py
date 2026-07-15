@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 import typer
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -13,6 +14,11 @@ from rich.table import Table
 
 from quant_krx import __version__
 from quant_krx.config.settings import get_settings
+
+# pydantic-settings의 env_file 로딩은 os.environ에 반영되지 않는다. pykrx 등 일부
+# 서드파티 라이브러리가 os.getenv()로 자격증명(KRX_ID/KRX_PW)을 직접 읽으므로,
+# 다른 임포트가 pykrx를 lazy-import하기 전에 .env를 os.environ에 명시적으로 반영한다.
+load_dotenv()
 
 app = typer.Typer(name="quant-krx", help="KRX Korean Stock Quant Trading Assistant")
 console = Console()
@@ -339,7 +345,7 @@ def fetch_fundamental_cmd(
         if kind in ("valuation", "all"):
             try:
                 frame = adapter.fetch_valuation(sym_list, start_date, end_date)
-            except NotImplementedError as e:
+            except (NotImplementedError, RuntimeError) as e:
                 console.print(f"[red]{e}[/red]")
                 raise typer.Exit(1) from e
             frame = frame.assign(source=adapter.source_name, fetched_at=datetime.utcnow())

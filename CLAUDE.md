@@ -100,7 +100,9 @@ Pydantic Settings, `.env` 자동 로드. 네스티드 설정:
 
 **vectorbt 1.0.0 API**: `pf.trades.records["fees"]` 없음 → `entry_fees + exit_fees` 사용 (`quant/metrics.py` 참조).
 
-**PyKrx lazy import**: `pykrx`는 `pkg_resources` 모듈 레벨 임포트 시 setuptools 82와 충돌. `pykrx_adapter.py`는 `_krx_stock()` 내부에서 lazy import.
+**PyKrx lazy import**: `pykrx`는 `pkg_resources` 모듈 레벨 임포트 시 setuptools 82와 충돌(`pkg_resources`는 setuptools 82부터 제거됨) → `setuptools>=70,<82`로 캡핑. `pykrx_adapter.py`/`pykrx_fundamental.py`는 `_krx_stock()` 내부에서 lazy import(단, 이 자체가 setuptools 충돌을 막지는 않음 — 캡핑이 실제 해결책).
+
+**PyKrx KRX 로그인**: `pykrx>=1.2.8`부터 `data.krx.co.kr` 밸류에이션/시가총액 엔드포인트(`get_market_fundamental_by_date`, `get_market_cap_by_date`)가 로그인 세션을 요구한다(OHLCV는 비로그인도 동작). 환경변수 `KRX_ID`/`KRX_PW`(`.env`)가 필요하며, pykrx가 `os.getenv()`로 직접 읽으므로 `__main__.py`의 `load_dotenv()` 호출이 선행되어야 `.env` 값이 적용된다. 미설정/만료 시 `PyKrxFundamentalAdapter.fetch_valuation`이 명확한 `RuntimeError`로 실패한다.
 
 **Report A vs B**: 동일 `signal.id`를 참조해야 함. Report A = LLM 없음, 결정론적. Report B = LLM 보조, 동일 신호 기반.
 

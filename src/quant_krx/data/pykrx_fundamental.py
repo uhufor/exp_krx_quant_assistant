@@ -27,6 +27,7 @@ class PyKrxFundamentalAdapter:
         start_str = start.strftime("%Y%m%d")
         end_str = end.strftime("%Y%m%d")
         frames = []
+        empty_response_count = 0
         for symbol in symbols:
             try:
                 fundamental = s.get_market_fundamental_by_date(start_str, end_str, symbol)
@@ -34,10 +35,21 @@ class PyKrxFundamentalAdapter:
                 ohlcv = s.get_market_ohlcv_by_date(start_str, end_str, symbol)
             except Exception:
                 continue
+            if fundamental.empty or cap.empty:
+                # KRX(data.krx.co.kr)가 비로그인 세션에 빈 응답을 반환하는 경우(REQ-KRX-AUTH).
+                # 병합 단계에서 컬럼 부재로 KeyError가 나는 대신 원인을 즉시 식별한다.
+                empty_response_count += 1
+                continue
             merged = self._merge_valuation(symbol, fundamental, cap, ohlcv)
             if not merged.empty:
                 frames.append(merged)
         if not frames:
+            if empty_response_count > 0:
+                raise RuntimeError(
+                    "PyKrx가 밸류에이션/시가총액 데이터를 빈 응답으로 반환했습니다. "
+                    "KRX(data.krx.co.kr) 로그인 세션이 필요할 수 있습니다 — "
+                    "환경변수 KRX_ID/KRX_PW가 설정되어 있고 유효한지 확인하세요."
+                )
             return pd.DataFrame(
                 columns=[
                     "symbol", "date", "close", "per", "pbr", "eps", "bps", "div",
