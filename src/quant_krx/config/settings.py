@@ -1,18 +1,8 @@
-import json
 from pathlib import Path
-from typing import Annotated
 
 import yaml
-from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
-
-ALL_STRATEGIES = [
-    "ma_crossover",
-    "rsi_breakout",
-    "bollinger_band",
-    "macd",
-    "momentum",
-]
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 네스티드 BaseSettings 공통 설정 — env_file을 지정해야 .env를 읽을 수 있음
 _NESTED_CONFIG = SettingsConfigDict(
@@ -21,23 +11,6 @@ _NESTED_CONFIG = SettingsConfigDict(
     extra="ignore",
     populate_by_name=True,
 )
-
-
-class StrategyConfig(BaseSettings):
-    model_config = _NESTED_CONFIG
-    enabled: Annotated[list[str], NoDecode] = Field(
-        default_factory=lambda: list(ALL_STRATEGIES), alias="ENABLED_STRATEGIES"
-    )
-
-    @field_validator("enabled", mode="before")
-    @classmethod
-    def _parse_comma_separated(cls, v: object) -> object:
-        if isinstance(v, str):
-            try:
-                return json.loads(v)  # 기존 JSON 배열 형식 (예: ["ma_crossover","macd"]) 호환
-            except json.JSONDecodeError:
-                return [s.strip() for s in v.split(",") if s.strip()]
-        return v
 
 
 class WatchlistConfig(BaseSettings):
@@ -102,7 +75,6 @@ class Settings(BaseSettings):
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
-    strategy: StrategyConfig = Field(default_factory=StrategyConfig)
 
     def load_watchlist(self) -> list[str]:
         path = Path(self.watchlist_path)

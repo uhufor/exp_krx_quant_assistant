@@ -12,13 +12,14 @@
 - **종목별/리포트별 개별 메시지**: 종목마다, Report A/B마다 별도 Telegram 메시지로 발송 (종목명 병기, 예: `380550 - 뉴로핏`)
 - **Exactly-once 알림**: durable outbox로 중복 발송 방지
 - **Mac mini 자동 실행**: launchd로 매일 장 마감 후 자동 실행
+- **No-Code Strategy Workspace**: 코드 없이 팩터·Formula·Rule을 조합해 나만의 전략을 설계·백테스트·운영 ([상세 문서](docs/NO_CODE_STRATEGY_WORKSPACE.md))
 
 ## 아키텍처
 
 ```
 데이터 수집 (FDR/PyKrx) → 검증 → DuckDB 저장
     ↓
-VectorBT 전략 실행 (MA 교차, RSI 돌파)
+VectorBT 전략 실행 (활성 선언형 전략)
     ↓
 신호 분류 (buy/sell/hold/watch/no_signal)
     ↓
@@ -83,7 +84,11 @@ market: KRX
 uv run python -m quant_krx validate-config
 ```
 
-## 전략
+## 기본 전략
+
+전략은 코드가 아니라 **선언형 데이터**(Formula/Rule/Strategy 정의 + `strategy-activate` 활성화)로
+구성됩니다. Daily는 활성 전략 집합만 실행하며(전략 원천 단일화), 최초 실행 시 아래 Built-in
+Template 5종이 자동으로 생성·활성화되어 끊김 없이 운영됩니다.
 
 | 이름 | 유형 | 핵심 아이디어 |
 |------|------|--------------|
@@ -93,43 +98,25 @@ uv run python -m quant_krx validate-config
 | `macd` | 모멘텀 | 12/26 EMA 차이의 9일 시그널선 교차 |
 | `momentum` | 중장기 추세 | 12-1개월 가격 모멘텀 (Jegadeesh & Titman) |
 
-기본적으로 5개 전략 모두 활성화됩니다.
+전략 활성화·비활성화는 `strategy-activate`/`strategy-deactivate` CLI로 제어합니다. 나만의
+전략 작성, 팩터 32종 카탈로그, 백테스트·Template·Import/Export 등 전체 워크플로우는
+[No-Code Strategy Workspace 문서](docs/NO_CODE_STRATEGY_WORKSPACE.md)를 참고하세요.
 
 ## 사용법
-
-### 전략 목록 확인
-
-```bash
-uv run python -m quant_krx list-strategies
-```
 
 ### Dry-run (알림 없이 테스트)
 
 ```bash
-# 전체 전략 실행
 LLM_MOCK=true uv run python -m quant_krx run-daily --dry-run
-
-# 특정 전략만 선택 (콤마 구분)
-LLM_MOCK=true uv run python -m quant_krx run-daily --dry-run --strategies ma_crossover,macd
 ```
+
+최초 실행 시 Built-in Template 5종이 자동으로 생성·활성화됩니다(전략 선택은
+`strategy-activate`/`strategy-deactivate`로 제어 — 위 [기본 전략](#기본-전략) 참고).
 
 ### 실제 실행 (Telegram 발송)
 
 ```bash
 uv run python -m quant_krx run-daily --no-dry-run
-
-# 특정 전략만
-uv run python -m quant_krx run-daily --no-dry-run --strategies bollinger_band,momentum
-```
-
-### 상시 비활성화 (설정 파일)
-
-`.env` 에 원하는 전략만 지정하면 `--strategies` 없이도 해당 전략만 실행됩니다:
-
-```env
-# .env — 콤마 구분 또는 JSON 배열 형식 모두 지원
-ENABLED_STRATEGIES=ma_crossover,macd,bollinger_band
-# ENABLED_STRATEGIES=["ma_crossover","macd","bollinger_band"]
 ```
 
 ### 결과 리포트 조회
@@ -216,11 +203,20 @@ uv run pytest tests/integration/test_daily_job.py -v
 
 ## 로드맵
 
-### v1 (현재): Watchlist 일일 퀀트 어시스턴트
+### v1 (완료): Watchlist 일일 퀀트 어시스턴트
 - [x] 관심 종목 watchlist 설정
-- [x] VectorBT 기반 퀀트 전략 (MA 교차, RSI)
+- [x] VectorBT 기반 퀀트 전략 실행
 - [x] Report A/B 분리
 - [x] Telegram 알림
+
+### v1.5 (완료): No-Code Strategy Workspace
+코드 없이 팩터·Formula·Rule을 조합해 전략을 설계·백테스트·운영하는 서브시스템. 상세는
+[docs/NO_CODE_STRATEGY_WORKSPACE.md](docs/NO_CODE_STRATEGY_WORKSPACE.md), 설계 문서는
+[refined_epics/](refined_epics/README.md)(PRD/TRD/DESIGN R01~R03) 참고.
+- [x] 팩터 플랫폼 32종 (가격·기술 7 + 밸류에이션 11 + 재무제표 14)
+- [x] Formula/Rule/Strategy 선언형 정의 + CRUD, Template(Built-in 5종 + 사용자)
+- [x] 선언형 전략 백테스트(벤치마크 상대 성과 포함)·활성화·Daily 편입
+- [x] Import/Export(전이 참조 포함 JSON 번들)
 
 ### v2: 테마 + 리밸런싱 리포트
 - [ ] 테마 설정 및 구성원 매핑
