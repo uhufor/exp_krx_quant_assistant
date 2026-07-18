@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 
 import pandas as pd
@@ -10,6 +11,10 @@ from quant_krx.data.loader import load_factor_input
 from quant_krx.data.upsert import upsert_fundamental
 from quant_krx.factors import FactorInput
 from quant_krx.storage.db import Database
+from quant_krx.strategy.definition import StrategyDefinition
+from quant_krx.workspace.evaluation import FormulaResolver, RuleResolver, strategy_required_data
+
+DATA_SOURCES = ("fixture", "fdr", "pykrx")
 
 
 def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
@@ -122,3 +127,84 @@ def build_factor_input(
     """OHLCV를 조회한 뒤 build_factor_input_from_ohlcv로 위임한다."""
     ohlcv_data = ohlcv_provider.fetch_ohlcv(symbol, start, end)
     return build_factor_input_from_ohlcv(db, symbol, ohlcv_data.df, start=start, end=end)
+
+
+def resolve_backtest_symbols(
+    defn: StrategyDefinition, requested: list[str] | None, watchlist: list[str]
+) -> list[str]:
+    """백테스트 대상 종목 해석: 명시 요청 > 전략 universe > watchlist(CLI/API 공유, drift 방지)."""
+    if requested:
+        return requested
+    return list(defn.universe.symbols) or list(watchlist)
+
+
+def _ohlcv_provider_for(data_source: str) -> DataProvider:
+    """--data-source 문자열로 OHLCV 어댑터를 선택한다(무거운 provider는 lazy import)."""
+    if data_source == "fixture":
+        from quant_krx.data.fixture_adapter import FixtureAdapter
+
+        return FixtureAdapter()
+    if data_source == "fdr":
+        from quant_krx.data.fdr_adapter import FDRAdapter
+
+        return FDRAdapter()
+    if data_source == "pykrx":
+        from quant_krx.data.pykrx_adapter import PyKrxAdapter
+
+        return PyKrxAdapter()
+    raise ValueError(f"알 수 없는 data_source '{data_source}'(허용: {DATA_SOURCES})")
+
+
+def prepare_backtest_data(
+    db: Database,
+    defn: StrategyDefinition,
+    symbols: list[str],
+    *,
+    data_source: str,
+    start: date,
+    end: date,
+    benchmark: str | None,
+    resolve_rule: RuleResolver,
+    resolve_formula: FormulaResolver,
+    on_benchmark_warning: Callable[[str, Exception], None] | None = None,
+) -> tuple[dict[str, FactorInput], pd.DataFrame | None]:
+    """`strategy-backtest` CLI(FR-11/12 경로)와 GUI API가 공유하는 백테스트 입력 조립.
+
+    데이터소스 어댑터 선택 → (필요 시) 펀더멘털 증분 수집 → 종목별 FactorInput 조립 →
+    벤치마크 수집까지 단일 경로로 수행한다. 두 소비자가 각자 재구현하면 drift가 생기므로
+    이 함수 하나만 CLI/API가 공유한다(신규 계산 로직 없음, 기존 어댑터/헬퍼 조합만 재사용).
+    """
+    if data_source not in DATA_SOURCES:
+        raise ValueError(f"알 수 없는 data_source '{data_source}'(허용: {DATA_SOURCES})")
+
+    ohlcv_provider = _ohlcv_provider_for(data_source)
+
+    required_kinds = strategy_required_data(defn, resolve_rule, resolve_formula)
+    if required_kinds & {"valuation", "financials"}:
+        if data_source == "fixture":
+            from quant_krx.data.fixture_fundamental import FixtureFundamentalAdapter
+
+            fundamental_provider: FundamentalProvider = FixtureFundamentalAdapter()
+        else:
+            from quant_krx.data.pykrx_fundamental import PyKrxFundamentalAdapter
+
+            fundamental_provider = PyKrxFundamentalAdapter()
+        fetch_and_upsert_fundamentals(
+            db, symbols, fundamental_provider,
+            start=start, end=end, as_of=date.today(), kinds=required_kinds,
+        )
+
+    data = {
+        sym: build_factor_input(db, sym, ohlcv_provider=ohlcv_provider, start=start, end=end)
+        for sym in symbols
+    }
+
+    benchmark_df: pd.DataFrame | None = None
+    if benchmark:
+        try:
+            benchmark_df = ohlcv_provider.fetch_benchmark(benchmark, start, end).df
+        except Exception as e:  # noqa: BLE001 — 벤치마크 실패는 백테스트 자체를 막지 않음(원 동작 유지)
+            if on_benchmark_warning is not None:
+                on_benchmark_warning(benchmark, e)
+
+    return data, benchmark_df

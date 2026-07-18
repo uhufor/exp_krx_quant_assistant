@@ -35,6 +35,7 @@ Telegram 발송 (durable outbox)
 - macOS (Apple Silicon 권장)
 - [Homebrew](https://brew.sh)
 - API 키: Anthropic (Claude), Telegram Bot
+- (선택, GUI 사용 시) Node.js 18+ / npm — `brew install node`
 
 ### 1단계: uv 설치
 
@@ -156,6 +157,60 @@ uv run python -m quant_krx show-reports --run-id 20260630-e5284252
 uv run python -m quant_krx validate-config
 ```
 
+### GUI (웹 인터페이스)
+
+CLI의 팩터 조회·공식/규칙/전략 CRUD·백테스트 실행을 로컬 1인용 웹 GUI로도 사용할 수 있습니다
+(localhost 전용, 인증 없음). 상세 설계는
+[roadmap/EPIC_R02/PRD-R01-QUANT_ASSISTANT_GUI.md](roadmap/EPIC_R02/PRD-R01-QUANT_ASSISTANT_GUI.md),
+전체 사용 흐름 예제는
+[docs/NO_CODE_STRATEGY_WORKSPACE.md](docs/NO_CODE_STRATEGY_WORKSPACE.md#gui-사용-예제) 참고.
+
+화면은 상단 탭으로 구성됩니다: **팩터**(32종 카탈로그 읽기 전용 조회) · **공식**(Formula, 트리
+편집기로 팩터를 조합한 파생 지표 생성) · **규칙**(Rule, 비교/AND·OR·NOT 조건 트리 편집기) ·
+**전략**(Strategy, 공식/규칙 참조 + 활성화·템플릿·Export/Import) · **백테스트**(전략 실행 + 지표
+요약·equity curve 차트·거래내역).
+
+**최초 설정(1회, 이후 프론트엔드 코드를 바꿨을 때만 다시)**
+
+```bash
+cd web
+npm install   # package.json이 바뀌지 않는 한 보통 1회만 필요
+npm run build # web/dist/ 생성 — 프론트엔드 코드를 수정했다면 매번 다시 실행
+cd ..
+```
+
+> macOS에서 `npm install`이 `EACCES`(캐시 폴더 권한 오류)로 실패하면
+> `sudo chown -R $(id -u):$(id -g) ~/.npm`으로 npm 전역 캐시 소유권을 고친 뒤 다시 시도하세요.
+
+**평소 사용(서버 하나만 실행)**
+
+```bash
+# GUI 전체(API+화면)가 http://127.0.0.1:8765/ 에서 동작
+uv run python -m quant_krx serve-gui
+
+# 포트 지정(개발 모드 프록시 없이 이 방식으로 쓸 때만 유효 — 아래 참고)
+uv run python -m quant_krx serve-gui --port 9000
+```
+
+**프론트엔드 코드를 직접 수정하며 개발할 때**(저장 즉시 반영되는 HMR)
+
+```bash
+# 터미널 1: 백엔드는 반드시 기본 포트(8765)로 실행
+uv run python -m quant_krx serve-gui
+# 터미널 2: vite dev server(5173) — /api를 127.0.0.1:8765로 자동 프록시(web/vite.config.ts)
+cd web && npm run dev
+# 브라우저는 http://localhost:5173/ 로 접속(8765가 아님)
+```
+
+> 개발 모드 프록시 대상은 `web/vite.config.ts`에 `127.0.0.1:8765`로 고정돼 있습니다.
+> 백엔드를 `--port`로 다른 포트에 띄우면 `npm run dev` 프록시가 깨지므로, 개발 모드에서는
+> 항상 기본 포트(8765)를 사용하세요.
+
+프론트엔드 테스트: `cd web && npm test`(Vitest, 트리 편집기 순수 로직 검증).
+
+`run-daily`·`show-reports`·`fetch-fundamental`·`validate-config`와 원본 32종 팩터 카탈로그
+자체의 CRUD(생성/수정/삭제)는 GUI 범위에서 제외됩니다(CLI로만 사용).
+
 ## Mac mini 자동 실행 설정
 
 ```bash
@@ -193,12 +248,16 @@ launchctl unload ~/Library/LaunchAgents/com.quant-krx.daily.plist
 ## 테스트
 
 ```bash
-# 전체 테스트
+# 전체 테스트(CLI + GUI API 포함)
 uv run pytest
 
 # 특정 모듈
 uv run pytest tests/unit/test_config.py -v
 uv run pytest tests/integration/test_daily_job.py -v
+uv run pytest tests/integration/test_api_backtests.py -v   # GUI 백테스트 API
+
+# GUI 프론트엔드(트리 편집기 등 순수 로직)
+cd web && npm test
 ```
 
 ## 로드맵
@@ -217,6 +276,15 @@ uv run pytest tests/integration/test_daily_job.py -v
 - [x] Formula/Rule/Strategy 선언형 정의 + CRUD, Template(Built-in 5종 + 사용자)
 - [x] 선언형 전략 백테스트(벤치마크 상대 성과 포함)·활성화·Daily 편입
 - [x] Import/Export(전이 참조 포함 JSON 번들)
+
+### v1.6 (완료): Quant Assistant GUI
+No-Code Strategy Workspace를 로컬 1인용 웹 GUI로 제공. 상세 설계는
+[roadmap/EPIC_R02/](roadmap/EPIC_R02/)(PRD/TRD/DESIGN R01) 참고.
+- [x] 팩터 조회(읽기 전용) API + 화면
+- [x] Formula/Rule 시각적 트리 편집기(중첩 표현식/조건 구성) + 저장 전 실시간 검증
+- [x] Strategy CRUD + 활성화/비활성화 + 템플릿 생성 + Export/Import
+- [x] 백테스트 실행 + 지표 요약·equity curve 차트·거래내역 표시
+- [x] 기존 CLI 27개 명령 회귀 없음
 
 ### v2: 테마 + 리밸런싱 리포트
 - [ ] 테마 설정 및 구성원 매핑

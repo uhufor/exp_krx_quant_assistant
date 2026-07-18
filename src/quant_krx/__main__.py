@@ -202,6 +202,29 @@ def show_version():
     console.print(f"quant-krx {__version__}")
 
 
+@app.command("serve-gui")
+def serve_gui_cmd(
+    host: str = typer.Option(None, "--host", help="바인딩 호스트(기본: settings.gui.host)"),
+    port: int = typer.Option(None, "--port", help="바인딩 포트(기본: settings.gui.port)"),
+    reload: bool = typer.Option(False, "--reload", help="코드 변경 시 자동 재시작(개발용)"),
+):
+    """로컬 1인용 웹 GUI(API 서버)를 실행한다. localhost 전용, 인증 없음."""
+    import uvicorn
+
+    settings = get_settings()
+    console.print(
+        f"[green]quant-krx GUI 서버 시작: "
+        f"http://{host or settings.gui.host}:{port or settings.gui.port}[/green]"
+    )
+    uvicorn.run(
+        "quant_krx.api.app:create_app",
+        factory=True,
+        host=host or settings.gui.host,
+        port=port or settings.gui.port,
+        reload=reload,
+    )
+
+
 @app.command("list-factors")
 def list_factors_cmd(
     category: str = typer.Option(
@@ -388,13 +411,9 @@ def strategy_backtest_cmd(
     """선언형 전략을 백테스트하고 최소 지표 집합을 표로 표시한다."""
     from datetime import date, datetime, timedelta
 
-    from quant_krx.data.fixture_adapter import FixtureAdapter
-    from quant_krx.data.fixture_fundamental import FixtureFundamentalAdapter
-    from quant_krx.data.pykrx_fundamental import PyKrxFundamentalAdapter
     from quant_krx.storage.db import Database
-    from quant_krx.workspace.data_loading import build_factor_input, fetch_and_upsert_fundamentals
+    from quant_krx.workspace.data_loading import prepare_backtest_data, resolve_backtest_symbols
     from quant_krx.workspace.errors import WorkspaceError
-    from quant_krx.workspace.evaluation import strategy_required_data
     from quant_krx.workspace.service import WorkspaceService
 
     if data_source not in ("fixture", "fdr", "pykrx"):
@@ -423,11 +442,8 @@ def strategy_backtest_cmd(
         db.close()
         raise typer.Exit(1)
 
-    sym_list = (
-        [s.strip() for s in symbols.split(",")]
-        if symbols
-        else (list(defn.universe.symbols) or settings.load_watchlist())
-    )
+    requested_symbols = [s.strip() for s in symbols.split(",")] if symbols else None
+    sym_list = resolve_backtest_symbols(defn, requested_symbols, settings.load_watchlist())
     if not sym_list:
         console.print("[red]대상 종목이 없습니다. --symbols 지정 또는 watchlist 설정 필요[/red]")
         db.close()
@@ -440,39 +456,15 @@ def strategy_backtest_cmd(
         else end_date - timedelta(days=365 * 5)
     )
 
-    ohlcv_provider = FixtureAdapter()
-    if data_source == "fdr":
-        from quant_krx.data.fdr_adapter import FDRAdapter
+    def _warn_benchmark_failure(bm: str, exc: Exception) -> None:
+        console.print(f"[yellow]벤치마크 '{bm}' 수집 실패(무시하고 계속): {exc}[/yellow]")
 
-        ohlcv_provider = FDRAdapter()
-    elif data_source == "pykrx":
-        from quant_krx.data.pykrx_adapter import PyKrxAdapter
-
-        ohlcv_provider = PyKrxAdapter()
-
-    required_kinds = strategy_required_data(defn, svc.get_rule, svc.get_formula)
-    if required_kinds & {"valuation", "financials"}:
-        fundamental_provider = (
-            FixtureFundamentalAdapter() if data_source == "fixture" else PyKrxFundamentalAdapter()
-        )
-        fetch_and_upsert_fundamentals(
-            db, sym_list, fundamental_provider,
-            start=start_date, end=end_date, as_of=date.today(), kinds=required_kinds,
-        )
-
-    data = {
-        sym: build_factor_input(
-            db, sym, ohlcv_provider=ohlcv_provider, start=start_date, end=end_date
-        )
-        for sym in sym_list
-    }
-
-    benchmark_df = None
-    if benchmark:
-        try:
-            benchmark_df = ohlcv_provider.fetch_benchmark(benchmark, start_date, end_date).df
-        except Exception as e:
-            console.print(f"[yellow]벤치마크 '{benchmark}' 수집 실패(무시하고 계속): {e}[/yellow]")
+    data, benchmark_df = prepare_backtest_data(
+        db, defn, sym_list,
+        data_source=data_source, start=start_date, end=end_date, benchmark=benchmark,
+        resolve_rule=svc.get_rule, resolve_formula=svc.get_formula,
+        on_benchmark_warning=_warn_benchmark_failure,
+    )
 
     try:
         report = svc.backtest(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 import pandas as pd
@@ -27,6 +27,7 @@ class BacktestReport:
     per_symbol: dict[str, BacktestMetrics]
     benchmark: str | None = None
     benchmark_note: str | None = None
+    results: dict[str, QuantBacktestResult] = field(default_factory=dict)
 
 
 def _combine_and(rule_ids: tuple[str, ...], ctx: EvaluationContext) -> pd.Series:
@@ -119,14 +120,17 @@ def run_backtest(
     end: date | None = None,
 ) -> BacktestReport:
     """종목별 (close, entries, exits, fees, slippage)를 baseline 엔진에 위임(FR-11/12)."""
-    per_symbol: dict[str, BacktestMetrics] = {
+    results: dict[str, QuantBacktestResult] = {
         symbol: run_single_symbol_backtest(
             defn, symbol, factor_input,
             fees=fees, slippage=slippage, benchmark=benchmark,
             resolve_formula=resolve_formula, resolve_rule=resolve_rule, start=start, end=end,
-        ).metrics
+        )
         for symbol, factor_input in data.items()
+    }
+    per_symbol: dict[str, BacktestMetrics] = {
+        symbol: result.metrics for symbol, result in results.items()
     }
     # 대표(top-level) 지표: 단일 종목 백테스트가 통상 사용 경로이므로 첫 종목을 대표로 사용.
     representative = next(iter(per_symbol.values()))
-    return BacktestReport(metrics=representative, per_symbol=per_symbol)
+    return BacktestReport(metrics=representative, per_symbol=per_symbol, results=results)
