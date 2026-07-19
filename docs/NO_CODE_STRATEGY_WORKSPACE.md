@@ -559,22 +559,16 @@ uv run python -m quant_krx serve-gui
 
 ### 4. 전략 탭 — Strategy 생성
 
-Strategy는 중첩 표현식이 아니라 참조형 정의(팩터/규칙 id 목록)라 트리 편집기 대신 폼
-(JSON 입력)을 사용한다. "신규 id"에 `qv_samsung_strategy` 입력 후 아래 내용을 채운다.
+Strategy는 중첩 표현식이 아니라 참조형 정의(팩터/규칙 id 목록)라 트리 편집기 대신
+반복 위젯 폼을 사용한다(JSON 직접 입력 없음). "신규 id"에 `qv_samsung_strategy` 입력
+→ "새 전략" 클릭 후:
 
-```json
-{
-  "name": "삼성전자 퀄리티-밸류 전략",
-  "version": "1",
-  "factor_refs": [
-    {"factor_id": "per", "params": {}},
-    {"factor_id": "roe_approx", "params": {}},
-    {"factor_id": "sma", "params": {}}
-  ],
-  "universe": {"symbols": ["005930"]},
-  "rule": {"roles": {"entry": ["qv_entry"], "exit": ["qv_exit"]}}
-}
-```
+- **이름/버전**: "삼성전자 퀄리티-밸류 전략" / `1`
+- **팩터 참조**: "+ 팩터 추가"로 3행을 만들어 각각 드롭다운에서 `per`, `roe_approx`,
+  `sma` 선택(파라미터는 기본값 유지)
+- **대상 종목**: 입력란에 `005930` 입력 후 "추가"
+- **규칙 바인딩**: "초안(규칙 미지정)" 체크 해제 → 진입(entry) 드롭다운에서
+  `qv_entry` 선택 → 청산(exit) 드롭다운에서 `qv_exit` 선택
 
 "저장 전 검증" 클릭 → 통과 확인 → "저장".
 

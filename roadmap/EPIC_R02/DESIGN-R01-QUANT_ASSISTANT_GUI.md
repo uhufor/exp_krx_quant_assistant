@@ -228,13 +228,25 @@ def run_backtest_endpoint(body: BacktestRequest, db=Depends(get_db), svc=Depends
 - [x] README.md 사용법 섹션에 `serve-gui` 명령 및 로드맵 v1.6 추가
 - [x] M6에서 AC-GUI-01~10 전체 테스트 매핑 최종 확인(백엔드 pytest 30건 신규 + 프론트 Vitest 6건)
 
-### 알려진 범위 조정
-- Strategy는 트리 구조가 아닌 참조형 정의(rule id 목록)이므로 M5 트리 빌더 대상에서 제외하고
-  JSON 폼(`ResourceCrudPage`)을 유지한다(PRD의 "JSON 직접 입력 없이 생성 가능"은 Formula/Rule의
-  중첩 표현식에 대한 요구였으며, Strategy는 필드가 평평해 JSON 폼만으로도 동등하게 충족됨).
+### 알려진 범위 조정 (수정 이력 포함)
+- Strategy는 트리 구조가 아닌 참조형 정의(rule id 목록)이므로 재귀 트리 편집기 대상은 아니다.
+  **정정(2026-07-19)**: M5 완료 직후 Strategy가 범용 JSON 텍스트에어리아(`ResourceCrudPage`)에
+  남아 있었는데, 이는 PRD Acceptance Criteria("공식(Formula)/규칙(Rule)/전략(Strategy)을 JSON을
+  직접 작성하지 않고 GUI 폼/빌더로 생성·수정·삭제 가능")를 위반한 것이었다 — "트리 편집기가
+  필요 없다"는 사실이 "폼 자체가 필요 없다"는 결론을 정당화하지 못함에도 그렇게 처리한 스코프
+  실수였다. `StrategyBuilderPage.tsx`(팩터 참조 반복 위젯, 종목 태그 입력, entry/exit 규칙
+  다중선택 — 모두 `/api/factors`·`/api/rules` 조회로 드롭다운 구성)로 교체해 PRD 기준을
+  충족시켰다. `ResourceCrudPage.tsx`는 사용처가 없어져 삭제.
+- **정정(2026-07-19, 같은 조사에서 함께 발견)**: `templates.py` 라우터(`GET /api/templates`,
+  `POST /api/templates/from/{id}`, `POST /api/templates`)는 M3에서 백엔드+통합 테스트까지
+  구현됐지만 프론트엔드 어디에서도 호출되지 않아 PRD AC("`strategy-template-list` 상당의
+  템플릿 목록에서 선택해 새 전략 생성 가능")가 실제로는 충족되지 않고 있었다.
+  `StrategyBuilderPage.tsx`에 "템플릿에서 생성" 드롭다운과 "템플릿으로 저장" 버튼을 추가해
+  해소했다. 백엔드 계약은 이미 검증되어 있었으므로(M3) 신규 로직 없이 배선만 추가.
 - 프론트엔드 테스트는 순수 로직(트리 기본값 생성·타입 판별)만 Vitest로 커버하고, React 컴포넌트
   렌더링 테스트·E2E(Playwright)는 범위 밖(ADR-GUI-03 결정 유지). 백엔드 계약은 통합 테스트로,
-  프론트-백엔드 연동은 실제 서버 기동 후 curl 기반 수동 스모크로 검증했다.
+  프론트-백엔드 연동은 실제 서버 기동 후 curl 기반 수동 스모크로 검증했다(Strategy 폼이 생성하는
+  정확한 요청 페이로드 — 초안 `rule=null` 기본값 포함 — 를 재현해 검증).
 
 ## 10. ADR
 

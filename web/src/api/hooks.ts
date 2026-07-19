@@ -20,3 +20,13 @@ export function useResourceIds(basePath: string, refreshKey: number): string[] {
   }, [basePath, refreshKey])
   return ids
 }
+
+export type TemplateInfo = { template_id: string; origin: 'builtin' | 'user'; name: string }
+
+export function useTemplates(refreshKey: number): TemplateInfo[] {
+  const [templates, setTemplates] = useState<TemplateInfo[]>([])
+  useEffect(() => {
+    api.get<TemplateInfo[]>('/templates').then(setTemplates).catch(() => setTemplates([]))
+  }, [refreshKey])
+  return templates
+}

@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { BacktestPage } from './pages/BacktestPage'
 import { FactorsPage } from './pages/FactorsPage'
 import { FormulaBuilderPage } from './pages/FormulaBuilderPage'
-import { ResourceCrudPage } from './pages/ResourceCrudPage'
 import { RuleBuilderPage } from './pages/RuleBuilderPage'
+import { StrategyBuilderPage } from './pages/StrategyBuilderPage'
 
 const TABS = ['팩터', '공식', '규칙', '전략', '백테스트'] as const
 type Tab = (typeof TABS)[number]
@@ -29,7 +29,7 @@ function App() {
       {tab === '팩터' && <FactorsPage />}
       {tab === '공식' && <FormulaBuilderPage />}
       {tab === '규칙' && <RuleBuilderPage />}
-      {tab === '전략' && <ResourceCrudPage basePath="strategies" label="전략" />}
+      {tab === '전략' && <StrategyBuilderPage />}
       {tab === '백테스트' && <BacktestPage />}
     </div>
   )
