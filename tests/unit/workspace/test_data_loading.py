@@ -6,7 +6,12 @@ import pandas as pd
 import pytest
 
 from quant_krx.storage.db import Database
-from quant_krx.workspace.data_loading import _gap_ranges, fetch_and_upsert_fundamentals
+from quant_krx.strategy.definition import StrategyDefinition, Universe
+from quant_krx.workspace.data_loading import (
+    _gap_ranges,
+    fetch_and_upsert_fundamentals,
+    resolve_backtest_symbols,
+)
 
 
 class _RecordingValuationProvider:
@@ -42,6 +47,32 @@ def db(tmp_path):
     database.connect()
     yield database
     database.close()
+
+
+def _strategy(symbols: tuple[str, ...] = ()) -> StrategyDefinition:
+    from quant_krx.strategy.definition import FactorRef
+
+    return StrategyDefinition(
+        id="s", name="s", version="1",
+        factor_refs=(FactorRef("sma", {}),),
+        universe=Universe(symbols=symbols),
+    )
+
+
+class TestResolveBacktestSymbols:
+    """watchlist(daily job 전용)는 ad-hoc 백테스트(CLI/GUI) 심볼 해석에 관여하지 않는다."""
+
+    def test_explicit_request_wins_over_universe(self):
+        defn = _strategy(symbols=("005930",))
+        assert resolve_backtest_symbols(defn, ["035720"]) == ["035720"]
+
+    def test_falls_back_to_universe_when_no_request(self):
+        defn = _strategy(symbols=("005930", "000660"))
+        assert resolve_backtest_symbols(defn, None) == ["005930", "000660"]
+
+    def test_empty_universe_and_no_request_returns_empty_not_watchlist(self):
+        defn = _strategy(symbols=())
+        assert resolve_backtest_symbols(defn, None) == []
 
 
 class TestGapRanges:

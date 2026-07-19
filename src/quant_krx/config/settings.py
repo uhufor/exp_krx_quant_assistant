@@ -56,6 +56,12 @@ class LLMConfig(BaseSettings):
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
 
 
+class GuiConfig(BaseSettings):
+    model_config = _NESTED_CONFIG
+    host: str = "127.0.0.1"  # 로컬 1인용 — 0.0.0.0 바인딩 금지(무인증 전제, PRD 제약)
+    port: int = 8765
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -74,6 +80,7 @@ class Settings(BaseSettings):
     evaluation: EvaluationProfile = Field(default_factory=EvaluationProfile)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
+    gui: GuiConfig = Field(default_factory=GuiConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
 
     def load_watchlist(self) -> list[str]:

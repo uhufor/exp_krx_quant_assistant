@@ -126,6 +126,20 @@ def test_service_backtest_produces_minimum_metric_set(ohlcv, svc) -> None:
     assert "005930" in report.per_symbol
 
 
+def test_service_backtest_exposes_full_results_per_symbol(ohlcv, svc) -> None:
+    # BacktestReport.results는 GUI가 equity curve/거래내역을 얻는 유일한 경로(additive 필드).
+    defn = _ma_crossover_strategy(svc)
+    data = {"005930": FactorInput(ohlcv=ohlcv)}
+    report = svc.backtest(defn.id, data=data, fees=0.003, slippage=0.001)
+
+    assert "005930" in report.results
+    full_result = report.results["005930"]
+    assert isinstance(full_result.trades, pd.DataFrame)
+    assert isinstance(full_result.equity_curve, pd.Series)
+    assert not full_result.equity_curve.empty
+    assert full_result.metrics == report.per_symbol["005930"]
+
+
 def test_service_backtest_rejects_non_runnable_strategy(svc) -> None:
     defn = StrategyDefinition(
         id="draft", name="draft", version="1",

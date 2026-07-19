@@ -174,6 +174,89 @@ def test_factor_cache_hit_avoids_recompute(ohlcv, ctx) -> None:
     assert calls["n"] == 1
 
 
+def test_factor_operand_cache_distinguishes_columns(ohlcv, ctx) -> None:
+    """동일 factor_id·동일 params, 상이 column 참조가 캐시에서 충돌하지 않아야 한다.
+
+    회귀 방지: 캐시 키에 column이 빠지면(예: (factor_id, canonical(params))만 사용) macd의
+    'macd'/'signal'처럼 같은 팩터의 서로 다른 출력 컬럼을 참조하는 두 번째 호출이 첫 번째
+    호출의 캐시를 그대로 반환해 좌우항이 항상 같아지는 버그가 있었다(크로스 영원히 미발생).
+    """
+    from quant_krx.workspace.evaluation import _eval_factor_operand
+
+    params = {"fast": 12, "slow": 26, "signal": 9}
+    macd_series = _eval_factor_operand("macd", "macd", params, ctx)
+    signal_series = _eval_factor_operand("macd", "signal", params, ctx)
+
+    expected = compute_factor(get_factor("macd", **params), ohlcv)
+    assert_series_equal(macd_series, expected["macd"].reindex(ohlcv.index), check_names=False)
+    assert_series_equal(
+        signal_series, expected["signal"].reindex(ohlcv.index), check_names=False
+    )
+    assert not macd_series.equals(signal_series)
+
+
+def test_macd_signal_cross_predicate_detects_crossovers(ohlcv, ctx) -> None:
+    """macd_entry 규칙(같은 팩터, 다른 컬럼을 crosses_above로 비교) 재현 — 실제 버그 시나리오."""
+    params = {"fast": 12, "slow": 26, "signal": 9}
+    entry_rule = Rule(
+        id="macd_entry", name="macd_entry", version="1",
+        root=Predicate(
+            FactorOperand("macd", "macd", params), "crosses_above",
+            FactorOperand("macd", "signal", params),
+        ),
+    )
+    result = evaluate_rule(entry_rule, ctx)
+
+    computed = compute_factor(get_factor("macd", **params), ohlcv)
+    macd_line = computed["macd"].reindex(ohlcv.index)
+    signal_line = computed["signal"].reindex(ohlcv.index)
+    expected = (macd_line > signal_line) & (macd_line.shift(1) <= signal_line.shift(1))
+    expected = (
+        expected
+        & macd_line.notna()
+        & signal_line.notna()
+        & macd_line.shift(1).notna()
+        & signal_line.shift(1).notna()
+    )
+    assert (result == expected.astype(bool)).all()
+    assert result.any()  # 캐시 버그 상태에서는 이 assertion이 항상 실패(크로스 0건)
+
+
+def test_factor_cache_shared_across_sibling_rules_respects_column(ohlcv, ctx) -> None:
+    """entry/exit 규칙이 같은 EvaluationContext를 공유해도(build_signals 패턴) 같은 팩터의
+    다른 컬럼 참조가 서로 오염되지 않아야 한다(bollinger_band 전략 entry→exit 순서 재현)."""
+    params = {"window": 20, "num_std": 2.0}
+    entry_rule = Rule(
+        id="e", name="e", version="1",
+        root=Predicate(
+            FactorOperand("price", "close"), "crosses_below",
+            FactorOperand("bollinger", "lower", params),
+        ),
+    )
+    exit_rule = Rule(
+        id="x", name="x", version="1",
+        root=Predicate(
+            FactorOperand("price", "close"), "crosses_above",
+            FactorOperand("bollinger", "middle", params),
+        ),
+    )
+    evaluate_rule(entry_rule, ctx)  # bollinger 팩터를 "lower" 컬럼으로 먼저 캐시에 적재
+    exit_result = evaluate_rule(exit_rule, ctx)
+
+    computed = compute_factor(get_factor("bollinger", **params), ohlcv)
+    close = ohlcv["close"]
+    middle = computed["middle"].reindex(ohlcv.index)
+    expected = (close > middle) & (close.shift(1) <= middle.shift(1))
+    expected = (
+        expected
+        & close.notna()
+        & middle.notna()
+        & close.shift(1).notna()
+        & middle.shift(1).notna()
+    )
+    assert (exit_result == expected.astype(bool)).all()
+
+
 def test_deterministic_two_evaluations_equal(ohlcv) -> None:
     formula = _sma_formula("m1", window=5)
     ctx1 = _ctx(ohlcv)
@@ -238,5 +321,5 @@ def test_factor_cache_isolated_across_contexts(ohlcv) -> None:
     evaluate_formula(formula, ctx1)
 
     assert ctx1._factor_cache is not ctx2._factor_cache
-    assert ("sma", '{"window":5}') in ctx1._factor_cache
+    assert ("sma", "sma", '{"window":5}') in ctx1._factor_cache
     assert ctx2._factor_cache == {}  # 별개 컨텍스트는 아무 것도 물려받지 않는다

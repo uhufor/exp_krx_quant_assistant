@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 import pandas as pd
@@ -27,6 +27,8 @@ class BacktestReport:
     per_symbol: dict[str, BacktestMetrics]
     benchmark: str | None = None
     benchmark_note: str | None = None
+    results: dict[str, QuantBacktestResult] = field(default_factory=dict)
+    errors: dict[str, str] = field(default_factory=dict)
 
 
 def _combine_and(rule_ids: tuple[str, ...], ctx: EvaluationContext) -> pd.Series:
@@ -118,15 +120,33 @@ def run_backtest(
     start: date | None = None,
     end: date | None = None,
 ) -> BacktestReport:
-    """종목별 (close, entries, exits, fees, slippage)를 baseline 엔진에 위임(FR-11/12)."""
+    """종목별 (close, entries, exits, fees, slippage)를 baseline 엔진에 위임(FR-11/12).
+
+    jobs/daily.py와 동일한 종목 단위 실패 격리(FR-17) — 밸류에이션이 없는 ETF처럼
+    특정 종목이 데이터 계약을 못 채우거나 평가 중 실패해도, 나머지 종목 결과는
+    그대로 반환하고 실패 사유만 errors에 기록한다(배치 전체를 막지 않음).
+    """
+    results: dict[str, QuantBacktestResult] = {}
+    errors: dict[str, str] = {}
+    for symbol, factor_input in data.items():
+        try:
+            results[symbol] = run_single_symbol_backtest(
+                defn, symbol, factor_input,
+                fees=fees, slippage=slippage, benchmark=benchmark,
+                resolve_formula=resolve_formula, resolve_rule=resolve_rule, start=start, end=end,
+            )
+        except Exception as e:  # noqa: BLE001 — 종목 단위 격리(FR-17), 사유는 errors에 보존
+            errors[symbol] = str(e)
+
+    if not results:
+        detail = "; ".join(f"{s}: {m}" for s, m in errors.items()) or "원인 불명"
+        raise EvaluationError(f"모든 종목의 백테스트가 실패했습니다({detail})")
+
     per_symbol: dict[str, BacktestMetrics] = {
-        symbol: run_single_symbol_backtest(
-            defn, symbol, factor_input,
-            fees=fees, slippage=slippage, benchmark=benchmark,
-            resolve_formula=resolve_formula, resolve_rule=resolve_rule, start=start, end=end,
-        ).metrics
-        for symbol, factor_input in data.items()
+        symbol: result.metrics for symbol, result in results.items()
     }
     # 대표(top-level) 지표: 단일 종목 백테스트가 통상 사용 경로이므로 첫 종목을 대표로 사용.
     representative = next(iter(per_symbol.values()))
-    return BacktestReport(metrics=representative, per_symbol=per_symbol)
+    return BacktestReport(
+        metrics=representative, per_symbol=per_symbol, results=results, errors=errors
+    )
