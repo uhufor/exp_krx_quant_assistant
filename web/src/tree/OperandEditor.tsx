@@ -1,3 +1,4 @@
+import { Group, NumberInput, Select } from '@mantine/core'
 import type { FactorOption, OperandJSON } from './types'
 
 type OperandEditorProps = {
@@ -7,9 +8,15 @@ type OperandEditorProps = {
   formulaIds: string[]
 }
 
+const KIND_DATA = [
+  { value: 'constant', label: '상수' },
+  { value: 'factor', label: '팩터' },
+  { value: 'formula', label: '공식 참조' },
+]
+
 /** 리프 피연산자(상수/팩터/공식참조) 편집 — Formula 표현식·Rule Predicate 양쪽이 공유. */
 export function OperandEditor({ value, onChange, factors, formulaIds }: OperandEditorProps) {
-  const handleKindChange = (kind: string) => {
+  const handleKindChange = (kind: string | null) => {
     if (kind === 'constant') onChange({ kind: 'constant', value: 0 })
     else if (kind === 'factor') {
       const f = factors[0]
@@ -20,19 +27,15 @@ export function OperandEditor({ value, onChange, factors, formulaIds }: OperandE
   }
 
   return (
-    <span style={{ display: 'inline-flex', gap: '0.25rem', alignItems: 'center' }}>
-      <select value={value.kind} onChange={(e) => handleKindChange(e.target.value)}>
-        <option value="constant">상수</option>
-        <option value="factor">팩터</option>
-        <option value="formula">공식 참조</option>
-      </select>
+    <Group gap="xs" wrap="nowrap" align="flex-end">
+      <Select label="유형" data={KIND_DATA} value={value.kind} onChange={handleKindChange} w={110} />
 
       {value.kind === 'constant' && (
-        <input
-          type="number"
+        <NumberInput
+          label="값"
           value={value.value}
-          onChange={(e) => onChange({ kind: 'constant', value: Number(e.target.value) })}
-          style={{ width: '6rem' }}
+          onChange={(v) => onChange({ kind: 'constant', value: Number(v) || 0 })}
+          w={100}
         />
       )}
 
@@ -40,64 +43,56 @@ export function OperandEditor({ value, onChange, factors, formulaIds }: OperandE
         const v = value
         const selected = factors.find((f) => f.id === v.factor_id)
         return (
-          <>
-            <select
+          <Group gap="xs" wrap="nowrap" align="flex-end">
+            <Select
+              label="팩터"
+              data={factors.map((f) => ({ value: f.id, label: `${f.display_name}(${f.id})` }))}
               value={v.factor_id}
-              onChange={(e) => {
-                const f = factors.find((ff) => ff.id === e.target.value)
+              onChange={(id) => {
+                const f = factors.find((ff) => ff.id === id)
                 onChange({
                   kind: 'factor',
-                  factor_id: e.target.value,
+                  factor_id: id ?? '',
                   column: f?.output[0] ?? '',
                   params: {},
                 })
               }}
-            >
-              {factors.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.display_name}({f.id})
-                </option>
-              ))}
-            </select>
-            <select value={v.column} onChange={(e) => onChange({ ...v, column: e.target.value })}>
-              {(selected?.output ?? [v.column]).map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
+              w={170}
+            />
+            <Select
+              label="컬럼"
+              data={selected?.output ?? [v.column]}
+              value={v.column}
+              onChange={(col) => onChange({ ...v, column: col ?? v.column })}
+              w={100}
+            />
             {selected?.params.map((p) => (
-              <label key={p.name} style={{ fontSize: '0.85em' }}>
-                {p.name}
-                <input
-                  type="number"
-                  value={v.params[p.name] ?? p.default}
-                  min={p.min ?? undefined}
-                  max={p.max ?? undefined}
-                  onChange={(e) =>
-                    onChange({ ...v, params: { ...v.params, [p.name]: Number(e.target.value) } })
-                  }
-                  style={{ width: '4rem' }}
-                />
-              </label>
+              <NumberInput
+                key={p.name}
+                label={p.name}
+                value={v.params[p.name] ?? p.default}
+                min={p.min ?? undefined}
+                max={p.max ?? undefined}
+                onChange={(val) =>
+                  onChange({ ...v, params: { ...v.params, [p.name]: Number(val) || 0 } })
+                }
+                w={80}
+              />
             ))}
-          </>
+          </Group>
         )
       })()}
 
       {value.kind === 'formula' && (
-        <select
-          value={value.formula_id}
-          onChange={(e) => onChange({ kind: 'formula', formula_id: e.target.value, column: 'value' })}
-        >
-          <option value="">(선택)</option>
-          {formulaIds.map((id) => (
-            <option key={id} value={id}>
-              {id}
-            </option>
-          ))}
-        </select>
+        <Select
+          label="공식"
+          placeholder="공식 선택"
+          data={formulaIds}
+          value={value.formula_id || null}
+          onChange={(id) => onChange({ kind: 'formula', formula_id: id ?? '', column: 'value' })}
+          w={170}
+        />
       )}
-    </span>
+    </Group>
   )
 }

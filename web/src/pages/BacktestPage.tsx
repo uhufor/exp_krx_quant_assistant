@@ -1,13 +1,22 @@
-import { useEffect, useState } from 'react'
+import { LineChart } from '@mantine/charts'
 import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Group,
+  Paper,
+  ScrollArea,
+  Select,
+  SimpleGrid,
+  Stack,
+  Table,
+  Text,
+  TextInput,
+  Title,
+} from '@mantine/core'
+import { IconAlertCircle, IconPlayerPlay } from '@tabler/icons-react'
+import { useEffect, useState } from 'react'
 import { api, ApiError } from '../api/client'
 
 type Metrics = {
@@ -26,22 +35,39 @@ type Metrics = {
 type BacktestReport = {
   metrics: Metrics
   per_symbol: Record<string, Metrics>
-  results: Record<string, { equity_curve: Array<{ date: string; value: number }>; trades: Record<string, unknown>[] }>
+  results: Record<
+    string,
+    { equity_curve: Array<{ date: string; value: number }>; trades: Record<string, unknown>[] }
+  >
 }
 
-const pct = (v: number | null | undefined) => (v == null || Number.isNaN(v) ? 'N/A' : `${(v * 100).toFixed(2)}%`)
+const pct = (v: number | null | undefined) =>
+  v == null || Number.isNaN(v) ? 'N/A' : `${(v * 100).toFixed(2)}%`
+
+function MetricStat({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <Card withBorder padding="sm" radius="md">
+      <Text size="xs" c="dimmed">
+        {label}
+      </Text>
+      <Text size="lg" fw={600} c={color}>
+        {value}
+      </Text>
+    </Card>
+  )
+}
 
 /** 백테스트 실행 + 결과 시각화(PRD 백테스트 AC1-4, M4). */
 export function BacktestPage() {
   const [strategyIds, setStrategyIds] = useState<string[]>([])
-  const [strategyId, setStrategyId] = useState('')
+  const [strategyId, setStrategyId] = useState<string | null>(null)
   const [symbols, setSymbols] = useState('')
   const [dataSource, setDataSource] = useState<'fixture' | 'fdr' | 'pykrx'>('fixture')
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
   const [benchmark, setBenchmark] = useState('')
   const [report, setReport] = useState<BacktestReport | null>(null)
-  const [selectedSymbol, setSelectedSymbol] = useState<string>('')
+  const [selectedSymbol, setSelectedSymbol] = useState('')
   const [error, setError] = useState('')
   const [running, setRunning] = useState(false)
 
@@ -81,127 +107,158 @@ export function BacktestPage() {
   const metrics = report && selectedSymbol ? report.per_symbol[selectedSymbol] : report?.metrics
 
   return (
-    <div>
-      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-        <select value={strategyId} onChange={(e) => setStrategyId(e.target.value)}>
-          <option value="">전략 선택</option>
-          {strategyIds.map((id) => (
-            <option key={id} value={id}>
-              {id}
-            </option>
-          ))}
-        </select>
-        <input
-          placeholder="종목(콤마 구분, 생략 시 universe/watchlist)"
-          value={symbols}
-          onChange={(e) => setSymbols(e.target.value)}
-        />
-        <select value={dataSource} onChange={(e) => setDataSource(e.target.value as typeof dataSource)}>
-          <option value="fixture">fixture</option>
-          <option value="fdr">fdr</option>
-          <option value="pykrx">pykrx</option>
-        </select>
-        <input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
-        <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
-        <input
-          placeholder="벤치마크(선택, 예: KOSPI)"
-          value={benchmark}
-          onChange={(e) => setBenchmark(e.target.value)}
-        />
-        <button type="button" onClick={handleRun} disabled={running}>
-          {running ? '실행 중...' : '백테스트 실행'}
-        </button>
-      </div>
+    <Stack gap="md">
+      <Paper withBorder p="md" radius="md">
+        <Group align="flex-end" gap="sm" wrap="wrap">
+          <Select
+            label="전략"
+            placeholder="전략 선택"
+            data={strategyIds}
+            value={strategyId}
+            onChange={setStrategyId}
+            w={180}
+          />
+          <TextInput
+            label="종목"
+            placeholder="콤마 구분, 생략 시 universe/watchlist"
+            value={symbols}
+            onChange={(e) => setSymbols(e.currentTarget.value)}
+            w={220}
+          />
+          <Select
+            label="데이터소스"
+            data={['fixture', 'fdr', 'pykrx']}
+            value={dataSource}
+            onChange={(v) => setDataSource((v as typeof dataSource) ?? 'fixture')}
+            w={110}
+          />
+          <TextInput
+            label="시작일"
+            type="date"
+            value={start}
+            onChange={(e) => setStart(e.currentTarget.value)}
+          />
+          <TextInput
+            label="종료일"
+            type="date"
+            value={end}
+            onChange={(e) => setEnd(e.currentTarget.value)}
+          />
+          <TextInput
+            label="벤치마크"
+            placeholder="선택, 예: KOSPI"
+            value={benchmark}
+            onChange={(e) => setBenchmark(e.currentTarget.value)}
+            w={130}
+          />
+          <Button
+            leftSection={<IconPlayerPlay size={16} />}
+            onClick={handleRun}
+            loading={running}
+          >
+            백테스트 실행
+          </Button>
+        </Group>
+      </Paper>
 
-      {error && <p style={{ color: 'red' }}>{error}</p>}
+      {error && (
+        <Alert icon={<IconAlertCircle size={16} />} color="red" title="백테스트 실패">
+          {error}
+        </Alert>
+      )}
 
       {report && (
-        <div>
+        <Stack gap="md">
           {Object.keys(report.results).length > 1 && (
-            <select value={selectedSymbol} onChange={(e) => setSelectedSymbol(e.target.value)}>
-              {Object.keys(report.results).map((sym) => (
-                <option key={sym} value={sym}>
-                  {sym}
-                </option>
-              ))}
-            </select>
+            <Select
+              label="종목"
+              data={Object.keys(report.results)}
+              value={selectedSymbol}
+              onChange={(v) => setSelectedSymbol(v ?? '')}
+              w={160}
+            />
           )}
 
           {metrics && (
-            <table>
-              <tbody>
-                <tr>
-                  <th>총수익률</th>
-                  <td>{pct(metrics.total_return)}</td>
-                  <th>MDD</th>
-                  <td>{pct(metrics.mdd)}</td>
-                  <th>Sharpe</th>
-                  <td>{metrics.sharpe?.toFixed(3) ?? 'N/A'}</td>
-                </tr>
-                <tr>
-                  <th>승률</th>
-                  <td>{pct(metrics.win_rate)}</td>
-                  <th>거래횟수</th>
-                  <td>{metrics.trade_count}</td>
-                  <th>총비용</th>
-                  <td>{(metrics.fees_paid + metrics.slippage_cost).toFixed(2)}</td>
-                </tr>
-                {metrics.benchmark_return != null && (
-                  <tr>
-                    <th>벤치마크 수익률</th>
-                    <td>{pct(metrics.benchmark_return)}</td>
-                    <th>초과수익률</th>
-                    <td>{pct(metrics.excess_return)}</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+            <SimpleGrid cols={{ base: 2, sm: 3, md: 6 }}>
+              <MetricStat label="총수익률" value={pct(metrics.total_return)} />
+              <MetricStat label="MDD" value={pct(metrics.mdd)} color="red" />
+              <MetricStat
+                label="Sharpe"
+                value={metrics.sharpe?.toFixed(3) ?? 'N/A'}
+              />
+              <MetricStat label="승률" value={pct(metrics.win_rate)} />
+              <MetricStat label="거래횟수" value={String(metrics.trade_count)} />
+              <MetricStat
+                label="총비용"
+                value={(metrics.fees_paid + metrics.slippage_cost).toFixed(2)}
+              />
+              {metrics.benchmark_return != null && (
+                <>
+                  <MetricStat label="벤치마크 수익률" value={pct(metrics.benchmark_return)} />
+                  <MetricStat
+                    label="초과수익률"
+                    value={pct(metrics.excess_return)}
+                    color={
+                      (metrics.excess_return ?? 0) >= 0 ? 'teal' : 'red'
+                    }
+                  />
+                </>
+              )}
+            </SimpleGrid>
           )}
 
           {result && result.equity_curve.length > 0 && (
-            <div style={{ height: 300, marginTop: '1rem' }}>
-              <h3>자산곡선(Equity Curve)</h3>
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={result.equity_curve}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" />
-                  <YAxis domain={['auto', 'auto']} />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="value" dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
+            <Paper withBorder p="md" radius="md">
+              <Title order={5} mb="sm">
+                자산곡선(Equity Curve)
+              </Title>
+              <LineChart
+                h={280}
+                data={result.equity_curve}
+                dataKey="date"
+                series={[{ name: 'value', color: 'blue.6' }]}
+                curveType="monotone"
+                withDots={false}
+                gridAxis="xy"
+              />
+            </Paper>
           )}
 
           {result && (
-            <div style={{ marginTop: '1rem' }}>
-              <h3>거래 내역({result.trades.length}건)</h3>
+            <Paper withBorder p="md" radius="md">
+              <Group justify="space-between" mb="sm">
+                <Title order={5}>거래 내역</Title>
+                <Badge variant="light">{result.trades.length}건</Badge>
+              </Group>
               {result.trades.length > 0 && (
-                <table>
-                  <thead>
-                    <tr>
-                      {Object.keys(result.trades[0]).map((col) => (
-                        <th key={col}>{col}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.trades.map((trade, i) => (
-                      // eslint-disable-next-line react/no-array-index-key
-                      <tr key={i}>
-                        {Object.values(trade).map((v, j) => (
-                          // eslint-disable-next-line react/no-array-index-key
-                          <td key={j}>{String(v)}</td>
+                <ScrollArea>
+                  <Table striped highlightOnHover withTableBorder>
+                    <Table.Thead>
+                      <Table.Tr>
+                        {Object.keys(result.trades[0]).map((col) => (
+                          <Table.Th key={col}>{col}</Table.Th>
                         ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {result.trades.map((trade, i) => (
+                        // eslint-disable-next-line react/no-array-index-key
+                        <Table.Tr key={i}>
+                          {Object.values(trade).map((v, j) => (
+                            // eslint-disable-next-line react/no-array-index-key
+                            <Table.Td key={j}>{String(v)}</Table.Td>
+                          ))}
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                </ScrollArea>
               )}
-            </div>
+            </Paper>
           )}
-        </div>
+        </Stack>
       )}
-    </div>
+    </Stack>
   )
 }

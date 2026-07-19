@@ -1,7 +1,36 @@
+import {
+  ActionIcon,
+  Alert,
+  Badge,
+  Button,
+  Checkbox,
+  FileButton,
+  Group,
+  List,
+  MultiSelect,
+  NumberInput,
+  Paper,
+  Select,
+  Stack,
+  TagsInput,
+  Text,
+  TextInput,
+  Title,
+} from '@mantine/core'
+import {
+  IconAlertCircle,
+  IconCheck,
+  IconDownload,
+  IconPlus,
+  IconTrash,
+  IconUpload,
+} from '@tabler/icons-react'
 import { useState } from 'react'
 import { api, ApiError } from '../api/client'
 import { useFactors, useResourceIds, useTemplates } from '../api/hooks'
 import type { TemplateInfo } from '../api/hooks'
+import { ResourceListPanel } from '../components/ResourceListPanel'
+import { notifyError, notifySuccess } from '../notify'
 import type { FactorOption } from '../tree/types'
 
 type FactorRefJSON = { factor_id: string; params: Record<string, number> }
@@ -42,7 +71,6 @@ export function StrategyBuilderPage() {
   const [newId, setNewId] = useState('')
   const [doc, setDoc] = useState<StrategyDoc | null>(null)
   const [validation, setValidation] = useState<ValidationResult | null>(null)
-  const [message, setMessage] = useState('')
   const [activeState, setActiveState] = useState<boolean | null>(null)
   const [saveAsTemplateId, setSaveAsTemplateId] = useState('')
 
@@ -57,12 +85,12 @@ export function StrategyBuilderPage() {
     api
       .get<StrategyDoc>(`/strategies/${id}`)
       .then(setDoc)
-      .catch((e: ApiError) => setMessage(`조회 실패: ${e.message}`))
+      .catch((e: ApiError) => notifyError(`조회 실패: ${e.message}`))
   }
 
   const startNew = () => {
     if (!newId) {
-      setMessage('신규 id를 입력하세요')
+      notifyError('신규 id를 입력하세요')
       return
     }
     setSelectedId('')
@@ -71,37 +99,37 @@ export function StrategyBuilderPage() {
     setActiveState(null)
   }
 
-  const handleCreateFromTemplate = (templateId: string) => {
+  const handleCreateFromTemplate = (templateId: string | null) => {
     if (!templateId) return
     if (!newId) {
-      setMessage('템플릿에서 생성할 신규 id를 입력하세요')
+      notifyError('템플릿에서 생성할 신규 id를 입력하세요')
       return
     }
     api
       .post<{ id: string }>(`/templates/from/${templateId}`, { new_id: newId })
       .then((defn) => {
-        setMessage(`템플릿 '${templateId}'에서 '${defn.id}' 생성 완료`)
+        notifySuccess(`템플릿 '${templateId}'에서 '${defn.id}' 생성 완료`)
         setNewId('')
         setRefreshKey((k) => k + 1)
         load(defn.id)
       })
-      .catch((e: ApiError) => setMessage(`템플릿 생성 실패: ${e.message}`))
+      .catch((e: ApiError) => notifyError(`템플릿 생성 실패: ${e.message}`))
   }
 
   const handleSaveAsTemplate = () => {
     if (!selectedId) return
     if (!saveAsTemplateId) {
-      setMessage('저장할 template id를 입력하세요')
+      notifyError('저장할 template id를 입력하세요')
       return
     }
     api
       .post('/templates', { strategy_id: selectedId, template_id: saveAsTemplateId })
       .then(() => {
-        setMessage(`'${selectedId}'을(를) 템플릿 '${saveAsTemplateId}'로 저장 완료`)
+        notifySuccess(`'${selectedId}'을(를) 템플릿 '${saveAsTemplateId}'로 저장 완료`)
         setSaveAsTemplateId('')
         setRefreshKey((k) => k + 1)
       })
-      .catch((e: ApiError) => setMessage(`템플릿 저장 실패: ${e.message}`))
+      .catch((e: ApiError) => notifyError(`템플릿 저장 실패: ${e.message}`))
   }
 
   const handleValidate = () => {
@@ -109,7 +137,7 @@ export function StrategyBuilderPage() {
     api
       .post<ValidationResult>('/strategies/validate', doc)
       .then(setValidation)
-      .catch((e: ApiError) => setMessage(`검증 요청 실패: ${e.message}`))
+      .catch((e: ApiError) => notifyError(`검증 요청 실패: ${e.message}`))
   }
 
   const handleSave = () => {
@@ -118,12 +146,12 @@ export function StrategyBuilderPage() {
     api
       .put(`/strategies/${id}`, doc)
       .then(() => {
-        setMessage(`'${id}' 저장 완료`)
+        notifySuccess(`'${id}' 저장 완료`)
         setNewId('')
         setRefreshKey((k) => k + 1)
         load(id)
       })
-      .catch((e: ApiError) => setMessage(`저장 실패: ${e.message}`))
+      .catch((e: ApiError) => notifyError(`저장 실패: ${e.message}`))
   }
 
   const handleDelete = () => {
@@ -131,12 +159,12 @@ export function StrategyBuilderPage() {
     api
       .del(`/strategies/${selectedId}`)
       .then(() => {
-        setMessage(`'${selectedId}' 삭제 완료`)
+        notifySuccess(`'${selectedId}' 삭제 완료`)
         setSelectedId('')
         setDoc(null)
         setRefreshKey((k) => k + 1)
       })
-      .catch((e: ApiError) => setMessage(`삭제 실패(활성 참조 중일 수 있음): ${e.message}`))
+      .catch((e: ApiError) => notifyError(`삭제 실패(활성 참조 중일 수 있음): ${e.message}`))
   }
 
   const handleActivate = (active: boolean) => {
@@ -145,9 +173,9 @@ export function StrategyBuilderPage() {
       .post(`/strategies/${selectedId}/${active ? 'activate' : 'deactivate'}`)
       .then(() => {
         setActiveState(active)
-        setMessage(`'${selectedId}' ${active ? '활성화' : '비활성화'} 완료`)
+        notifySuccess(`'${selectedId}' ${active ? '활성화' : '비활성화'} 완료`)
       })
-      .catch((e: ApiError) => setMessage(`전환 실패: ${e.message}`))
+      .catch((e: ApiError) => notifyError(`전환 실패: ${e.message}`))
   }
 
   const handleExport = () => {
@@ -163,203 +191,179 @@ export function StrategyBuilderPage() {
         a.click()
         URL.revokeObjectURL(url)
       })
-      .catch((e: ApiError) => setMessage(`Export 실패: ${e.message}`))
+      .catch((e: ApiError) => notifyError(`Export 실패: ${e.message}`))
   }
 
-  const handleImport = (file: File) => {
+  const handleImport = (file: File | null) => {
+    if (!file) return
     file
       .text()
       .then((text) => api.post('/strategies/import', JSON.parse(text)))
       .then(() => {
-        setMessage('Import 완료')
+        notifySuccess('Import 완료')
         setRefreshKey((k) => k + 1)
       })
-      .catch((e: ApiError | Error) => setMessage(`Import 실패: ${e.message}`))
-  }
-
-  if (!doc) {
-    return (
-      <div style={{ display: 'flex', gap: '1rem' }}>
-        <StrategyList
-          strategyIds={strategyIds}
-          selectedId={selectedId}
-          onSelect={load}
-          newId={newId}
-          onNewIdChange={setNewId}
-          onStartNew={startNew}
-          onImport={handleImport}
-          templates={templates}
-          onCreateFromTemplate={handleCreateFromTemplate}
-        />
-        <div style={{ flex: 1 }}>{message && <p>{message}</p>}</div>
-      </div>
-    )
+      .catch((e: ApiError | Error) => notifyError(`Import 실패: ${e.message}`))
   }
 
   return (
-    <div style={{ display: 'flex', gap: '1rem' }}>
-      <StrategyList
-        strategyIds={strategyIds}
+    <Group align="flex-start" gap="md">
+      <ResourceListPanel
+        title="전략 목록"
+        ids={strategyIds}
         selectedId={selectedId}
         onSelect={load}
         newId={newId}
         onNewIdChange={setNewId}
         onStartNew={startNew}
-        onImport={handleImport}
-        templates={templates}
-        onCreateFromTemplate={handleCreateFromTemplate}
-      />
-
-      <div style={{ flex: 1 }}>
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
-          <label>
-            이름
-            <input value={doc.name} onChange={(e) => setDoc({ ...doc, name: e.target.value })} />
-          </label>
-          <label>
-            버전
-            <input
-              value={doc.version}
-              onChange={(e) => setDoc({ ...doc, version: e.target.value })}
-              style={{ width: '3rem' }}
-            />
-          </label>
-        </div>
-
-        <FactorRefsEditor
-          value={doc.factor_refs}
-          onChange={(factor_refs) => setDoc({ ...doc, factor_refs })}
-          factors={factors}
+        newLabel="새 전략(빈 정의)"
+      >
+        <Select
+          label="템플릿에서 생성"
+          placeholder="템플릿 선택..."
+          data={templates.map((t: TemplateInfo) => ({
+            value: t.template_id,
+            label: `${t.name} (${t.origin})`,
+          }))}
+          value={null}
+          onChange={handleCreateFromTemplate}
+          size="sm"
         />
-
-        <SymbolsEditor
-          value={doc.universe.symbols}
-          onChange={(symbols) => setDoc({ ...doc, universe: { symbols } })}
-        />
-
-        <RuleBindingEditor
-          value={doc.rule}
-          onChange={(rule) => setDoc({ ...doc, rule })}
-          ruleIds={ruleIds}
-        />
-
-        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
-          <button type="button" onClick={handleValidate}>
-            저장 전 검증
-          </button>
-          <button type="button" onClick={handleSave}>
-            저장
-          </button>
-          <button type="button" onClick={handleDelete} disabled={!selectedId}>
-            삭제
-          </button>
-          <button type="button" onClick={() => handleActivate(true)} disabled={!selectedId}>
-            활성화
-          </button>
-          <button type="button" onClick={() => handleActivate(false)} disabled={!selectedId}>
-            비활성화
-          </button>
-          <button type="button" onClick={handleExport} disabled={!selectedId}>
-            Export
-          </button>
-        </div>
-
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.5rem' }}>
-          <input
-            placeholder="template id"
-            value={saveAsTemplateId}
-            onChange={(e) => setSaveAsTemplateId(e.target.value)}
-            disabled={!selectedId}
-          />
-          <button type="button" onClick={handleSaveAsTemplate} disabled={!selectedId}>
-            템플릿으로 저장
-          </button>
-        </div>
-
-        {activeState != null && <p>현재 상태: {activeState ? '활성' : '비활성'}</p>}
-
-        {validation && (
-          <div>
-            <strong>검증 결과: {validation.ok ? '통과' : '실패'}</strong>
-            <ul>
-              {validation.errors.map((err) => (
-                <li key={err}>{err}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {message && <p>{message}</p>}
-      </div>
-    </div>
-  )
-}
-
-function StrategyList({
-  strategyIds,
-  selectedId,
-  onSelect,
-  newId,
-  onNewIdChange,
-  onStartNew,
-  onImport,
-  templates,
-  onCreateFromTemplate,
-}: {
-  strategyIds: string[]
-  selectedId: string
-  onSelect: (id: string) => void
-  newId: string
-  onNewIdChange: (v: string) => void
-  onStartNew: () => void
-  onImport: (file: File) => void
-  templates: TemplateInfo[]
-  onCreateFromTemplate: (templateId: string) => void
-}) {
-  return (
-    <div style={{ minWidth: '180px' }}>
-      <h3>전략 목록</h3>
-      <ul style={{ listStyle: 'none', padding: 0 }}>
-        {strategyIds.map((id) => (
-          <li key={id}>
-            <button
-              type="button"
-              onClick={() => onSelect(id)}
-              style={{ fontWeight: id === selectedId ? 'bold' : 'normal' }}
+        <FileButton onChange={handleImport} accept="application/json">
+          {(props) => (
+            <Button
+              {...props}
+              variant="light"
+              size="sm"
+              fullWidth
+              leftSection={<IconUpload size={14} />}
             >
-              {id}
-            </button>
-          </li>
-        ))}
-      </ul>
-      <input placeholder="신규 id" value={newId} onChange={(e) => onNewIdChange(e.target.value)} />
-      <button type="button" onClick={onStartNew}>
-        새 전략(빈 정의)
-      </button>
-      <div style={{ marginTop: '0.5rem' }}>
-        <select value="" onChange={(e) => e.target.value && onCreateFromTemplate(e.target.value)}>
-          <option value="">템플릿에서 생성...</option>
-          {templates.map((t) => (
-            <option key={t.template_id} value={t.template_id}>
-              {t.name}({t.template_id}, {t.origin})
-            </option>
-          ))}
-        </select>
-      </div>
-      <div style={{ marginTop: '0.5rem' }}>
-        <label>
-          Import
-          <input
-            type="file"
-            accept="application/json"
-            onChange={(e) => {
-              const file = e.target.files?.[0]
-              if (file) onImport(file)
-              e.target.value = ''
-            }}
-          />
-        </label>
-      </div>
-    </div>
+              Import
+            </Button>
+          )}
+        </FileButton>
+      </ResourceListPanel>
+
+      {doc && (
+        <Paper withBorder p="md" radius="md" style={{ flex: 1 }}>
+          <Stack gap="md">
+            <Group align="flex-end">
+              <TextInput label="ID" value={doc.id} disabled w={180} />
+              <TextInput
+                label="이름"
+                value={doc.name}
+                onChange={(e) => setDoc({ ...doc, name: e.currentTarget.value })}
+              />
+              <TextInput
+                label="버전"
+                value={doc.version}
+                onChange={(e) => setDoc({ ...doc, version: e.currentTarget.value })}
+                w={80}
+              />
+            </Group>
+
+            <FactorRefsEditor
+              value={doc.factor_refs}
+              onChange={(factor_refs) => setDoc({ ...doc, factor_refs })}
+              factors={factors}
+            />
+
+            <TagsInput
+              label="대상 종목(universe.symbols, 비어있으면 watchlist 전체)"
+              placeholder="종목코드 입력 후 Enter(예: 005930)"
+              value={doc.universe.symbols}
+              onChange={(symbols) => setDoc({ ...doc, universe: { symbols } })}
+            />
+
+            <RuleBindingEditor
+              value={doc.rule}
+              onChange={(rule) => setDoc({ ...doc, rule })}
+              ruleIds={ruleIds}
+            />
+
+            <Group>
+              <Button variant="default" onClick={handleValidate}>
+                저장 전 검증
+              </Button>
+              <Button onClick={handleSave}>저장</Button>
+              <Button
+                color="red"
+                variant="outline"
+                leftSection={<IconTrash size={14} />}
+                onClick={handleDelete}
+                disabled={!selectedId}
+              >
+                삭제
+              </Button>
+              <Button
+                variant="light"
+                color="teal"
+                onClick={() => handleActivate(true)}
+                disabled={!selectedId}
+              >
+                활성화
+              </Button>
+              <Button
+                variant="light"
+                color="gray"
+                onClick={() => handleActivate(false)}
+                disabled={!selectedId}
+              >
+                비활성화
+              </Button>
+              <Button
+                variant="subtle"
+                leftSection={<IconDownload size={14} />}
+                onClick={handleExport}
+                disabled={!selectedId}
+              >
+                Export
+              </Button>
+            </Group>
+
+            <Group align="flex-end">
+              <TextInput
+                label="템플릿 id"
+                placeholder="template id"
+                value={saveAsTemplateId}
+                onChange={(e) => setSaveAsTemplateId(e.currentTarget.value)}
+                disabled={!selectedId}
+                size="sm"
+              />
+              <Button
+                variant="subtle"
+                size="sm"
+                onClick={handleSaveAsTemplate}
+                disabled={!selectedId}
+              >
+                템플릿으로 저장
+              </Button>
+              {activeState != null && (
+                <Badge color={activeState ? 'teal' : 'gray'}>
+                  {activeState ? '활성' : '비활성'}
+                </Badge>
+              )}
+            </Group>
+
+            {validation && (
+              <Alert
+                icon={validation.ok ? <IconCheck size={16} /> : <IconAlertCircle size={16} />}
+                color={validation.ok ? 'green' : 'red'}
+                title={validation.ok ? '검증 통과' : '검증 실패'}
+              >
+                {!validation.ok && (
+                  <List size="sm">
+                    {validation.errors.map((err) => (
+                      <List.Item key={err}>{err}</List.Item>
+                    ))}
+                  </List>
+                )}
+              </Alert>
+            )}
+          </Stack>
+        </Paper>
+      )}
+    </Group>
   )
 }
 
@@ -385,88 +389,49 @@ function FactorRefsEditor({
 
   return (
     <div>
-      <h4>팩터 참조(factor_refs)</h4>
-      {value.map((ref, i) => {
-        const selected = factors.find((f) => f.id === ref.factor_id)
-        return (
-          // eslint-disable-next-line react/no-array-index-key
-          <div key={i} style={{ display: 'flex', gap: '0.25rem', alignItems: 'center', marginBottom: '0.25rem' }}>
-            <select
-              value={ref.factor_id}
-              onChange={(e) => updateRow(i, { factor_id: e.target.value, params: {} })}
-            >
-              {factors.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.display_name}({f.id})
-                </option>
-              ))}
-            </select>
-            {selected?.params.map((p) => (
-              <label key={p.name} style={{ fontSize: '0.85em' }}>
-                {p.name}
-                <input
-                  type="number"
+      <Title order={5} mb="xs">
+        팩터 참조(factor_refs)
+      </Title>
+      <Stack gap="xs">
+        {value.map((ref, i) => {
+          const selected = factors.find((f) => f.id === ref.factor_id)
+          return (
+            // eslint-disable-next-line react/no-array-index-key
+            <Group key={i} gap="xs" wrap="nowrap" align="flex-end">
+              <Select
+                label="팩터"
+                data={factors.map((f) => ({ value: f.id, label: `${f.display_name}(${f.id})` }))}
+                value={ref.factor_id}
+                onChange={(id) => updateRow(i, { factor_id: id ?? '', params: {} })}
+                w={200}
+              />
+              {selected?.params.map((p) => (
+                <NumberInput
+                  key={p.name}
+                  label={p.name}
                   value={ref.params[p.name] ?? p.default}
-                  onChange={(e) =>
-                    updateRow(i, {
-                      ...ref,
-                      params: { ...ref.params, [p.name]: Number(e.target.value) },
-                    })
+                  onChange={(v) =>
+                    updateRow(i, { ...ref, params: { ...ref.params, [p.name]: Number(v) || 0 } })
                   }
-                  style={{ width: '4rem' }}
+                  w={80}
                 />
-              </label>
-            ))}
-            <button type="button" onClick={() => removeRow(i)}>
-              제거
-            </button>
-          </div>
-        )
-      })}
-      <button type="button" onClick={addRow}>
-        + 팩터 추가
-      </button>
-    </div>
-  )
-}
-
-function SymbolsEditor({
-  value,
-  onChange,
-}: {
-  value: string[]
-  onChange: (v: string[]) => void
-}) {
-  const [draft, setDraft] = useState('')
-
-  const add = () => {
-    if (draft && !value.includes(draft)) onChange([...value, draft])
-    setDraft('')
-  }
-  const remove = (symbol: string) => onChange(value.filter((s) => s !== symbol))
-
-  return (
-    <div>
-      <h4>대상 종목(universe.symbols, 비어있으면 watchlist 전체)</h4>
-      <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', marginBottom: '0.25rem' }}>
-        {value.map((s) => (
-          <span key={s} style={{ border: '1px solid #ccc', borderRadius: 4, padding: '0 0.4rem' }}>
-            {s}{' '}
-            <button type="button" onClick={() => remove(s)}>
-              ×
-            </button>
-          </span>
-        ))}
-      </div>
-      <input
-        placeholder="종목코드 6자리(예: 005930)"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        style={{ width: '10rem' }}
-      />
-      <button type="button" onClick={add}>
-        추가
-      </button>
+              ))}
+              <ActionIcon color="red" variant="subtle" onClick={() => removeRow(i)}>
+                <IconTrash size={16} />
+              </ActionIcon>
+            </Group>
+          )
+        })}
+        <Button
+          variant="light"
+          size="xs"
+          leftSection={<IconPlus size={14} />}
+          onClick={addRow}
+          style={{ alignSelf: 'flex-start' }}
+        >
+          팩터 추가
+        </Button>
+      </Stack>
     </div>
   )
 }
@@ -482,86 +447,42 @@ function RuleBindingEditor({
 }) {
   const isDraft = value === null
 
-  const addRole = (role: 'entry' | 'exit', ruleId: string) => {
-    if (!value || !ruleId || value.roles[role].includes(ruleId)) return
-    onChange({ roles: { ...value.roles, [role]: [...value.roles[role], ruleId] } })
-  }
-  const removeRole = (role: 'entry' | 'exit', ruleId: string) => {
-    if (!value) return
-    onChange({ roles: { ...value.roles, [role]: value.roles[role].filter((id) => id !== ruleId) } })
-  }
-
   return (
     <div>
-      <h4>규칙 바인딩(rule)</h4>
-      <label>
-        <input
-          type="checkbox"
+      <Title order={5} mb="xs">
+        규칙 바인딩(rule)
+      </Title>
+      <Stack gap="xs">
+        <Checkbox
           checked={isDraft}
           onChange={(e) =>
-            onChange(e.target.checked ? null : { roles: { entry: [], exit: [] } })
+            onChange(e.currentTarget.checked ? null : { roles: { entry: [], exit: [] } })
           }
+          label="초안(규칙 미지정 — 활성화/백테스트 불가)"
         />
-        초안(규칙 미지정 — 활성화/백테스트 불가)
-      </label>
 
-      {!isDraft && value && (
-        <>
-          <RoleEditor
-            label="진입(entry, 최소 1개 필수)"
-            selected={value.roles.entry}
-            ruleIds={ruleIds}
-            onAdd={(id) => addRole('entry', id)}
-            onRemove={(id) => removeRole('entry', id)}
-          />
-          <RoleEditor
-            label="청산(exit, 생략 가능)"
-            selected={value.roles.exit}
-            ruleIds={ruleIds}
-            onAdd={(id) => addRole('exit', id)}
-            onRemove={(id) => removeRole('exit', id)}
-          />
-        </>
-      )}
-    </div>
-  )
-}
-
-function RoleEditor({
-  label,
-  selected,
-  ruleIds,
-  onAdd,
-  onRemove,
-}: {
-  label: string
-  selected: string[]
-  ruleIds: string[]
-  onAdd: (id: string) => void
-  onRemove: (id: string) => void
-}) {
-  const available = ruleIds.filter((id) => !selected.includes(id))
-  return (
-    <div style={{ marginBottom: '0.25rem' }}>
-      <div>{label}</div>
-      <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', marginBottom: '0.25rem' }}>
-        {selected.map((id) => (
-          <span key={id} style={{ border: '1px solid #ccc', borderRadius: 4, padding: '0 0.4rem' }}>
-            {id}{' '}
-            <button type="button" onClick={() => onRemove(id)}>
-              ×
-            </button>
-          </span>
-        ))}
-      </div>
-      <select value="" onChange={(e) => e.target.value && onAdd(e.target.value)}>
-        <option value="">규칙 추가...</option>
-        {available.map((id) => (
-          <option key={id} value={id}>
-            {id}
-          </option>
-        ))}
-      </select>
+        {!isDraft && value && (
+          <>
+            <MultiSelect
+              label="진입(entry, 최소 1개 필수)"
+              data={ruleIds}
+              value={value.roles.entry}
+              onChange={(entry) => onChange({ roles: { ...value.roles, entry } })}
+            />
+            <MultiSelect
+              label="청산(exit, 생략 가능)"
+              data={ruleIds}
+              value={value.roles.exit}
+              onChange={(exit) => onChange({ roles: { ...value.roles, exit } })}
+            />
+          </>
+        )}
+        {isDraft && (
+          <Text size="xs" c="dimmed">
+            초안 상태에서는 활성화·백테스트를 실행할 수 없습니다.
+          </Text>
+        )}
+      </Stack>
     </div>
   )
 }

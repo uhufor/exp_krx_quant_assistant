@@ -1,6 +1,10 @@
+import { Alert, Button, Group, List, Paper, Stack, TextInput, Title } from '@mantine/core'
+import { IconAlertCircle, IconCheck, IconTrash } from '@tabler/icons-react'
 import { useState } from 'react'
 import { api, ApiError } from '../api/client'
 import { useFactors, useResourceIds } from '../api/hooks'
+import { ResourceListPanel } from '../components/ResourceListPanel'
+import { notifyError, notifySuccess } from '../notify'
 import { RuleTreeEditor } from '../tree/RuleTreeEditor'
 import type { RuleNodeJSON } from '../tree/types'
 import { defaultPredicate } from '../tree/types'
@@ -29,7 +33,6 @@ export function RuleBuilderPage() {
   const [newId, setNewId] = useState('')
   const [doc, setDoc] = useState<RuleDoc | null>(null)
   const [validation, setValidation] = useState<ValidationResult | null>(null)
-  const [message, setMessage] = useState('')
 
   const load = (id: string) => {
     setSelectedId(id)
@@ -41,12 +44,12 @@ export function RuleBuilderPage() {
     api
       .get<RuleDoc>(`/rules/${id}`)
       .then(setDoc)
-      .catch((e: ApiError) => setMessage(`조회 실패: ${e.message}`))
+      .catch((e: ApiError) => notifyError(`조회 실패: ${e.message}`))
   }
 
   const startNew = () => {
     if (!newId) {
-      setMessage('신규 id를 입력하세요')
+      notifyError('신규 id를 입력하세요')
       return
     }
     setSelectedId('')
@@ -59,7 +62,7 @@ export function RuleBuilderPage() {
     api
       .post<ValidationResult>('/rules/validate', doc)
       .then(setValidation)
-      .catch((e: ApiError) => setMessage(`검증 요청 실패: ${e.message}`))
+      .catch((e: ApiError) => notifyError(`검증 요청 실패: ${e.message}`))
   }
 
   const handleSave = () => {
@@ -68,12 +71,12 @@ export function RuleBuilderPage() {
     api
       .put(`/rules/${id}`, doc)
       .then(() => {
-        setMessage(`'${id}' 저장 완료`)
+        notifySuccess(`'${id}' 저장 완료`)
         setNewId('')
         setRefreshKey((k) => k + 1)
         load(id)
       })
-      .catch((e: ApiError) => setMessage(`저장 실패: ${e.message}`))
+      .catch((e: ApiError) => notifyError(`저장 실패: ${e.message}`))
   }
 
   const handleDelete = () => {
@@ -81,92 +84,91 @@ export function RuleBuilderPage() {
     api
       .del(`/rules/${selectedId}`)
       .then(() => {
-        setMessage(`'${selectedId}' 삭제 완료`)
+        notifySuccess(`'${selectedId}' 삭제 완료`)
         setSelectedId('')
         setDoc(null)
         setRefreshKey((k) => k + 1)
       })
-      .catch((e: ApiError) => setMessage(`삭제 실패(활성 참조 중일 수 있음): ${e.message}`))
+      .catch((e: ApiError) => notifyError(`삭제 실패(활성 참조 중일 수 있음): ${e.message}`))
   }
 
   return (
-    <div style={{ display: 'flex', gap: '1rem' }}>
-      <div style={{ minWidth: '180px' }}>
-        <h3>규칙 목록</h3>
-        <ul style={{ listStyle: 'none', padding: 0 }}>
-          {ruleIds.map((id) => (
-            <li key={id}>
-              <button
-                type="button"
-                onClick={() => load(id)}
-                style={{ fontWeight: id === selectedId ? 'bold' : 'normal' }}
-              >
-                {id}
-              </button>
-            </li>
-          ))}
-        </ul>
-        <input placeholder="신규 id" value={newId} onChange={(e) => setNewId(e.target.value)} />
-        <button type="button" onClick={startNew}>
-          새 규칙
-        </button>
-      </div>
+    <Group align="flex-start" gap="md">
+      <ResourceListPanel
+        title="규칙 목록"
+        ids={ruleIds}
+        selectedId={selectedId}
+        onSelect={load}
+        newId={newId}
+        onNewIdChange={setNewId}
+        onStartNew={startNew}
+        newLabel="새 규칙"
+      />
 
-      <div style={{ flex: 1 }}>
-        {doc && (
-          <>
-            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
-              <label>
-                이름
-                <input
-                  value={doc.name}
-                  onChange={(e) => setDoc({ ...doc, name: e.target.value })}
-                />
-              </label>
-              <label>
-                버전
-                <input
-                  value={doc.version}
-                  onChange={(e) => setDoc({ ...doc, version: e.target.value })}
-                  style={{ width: '3rem' }}
-                />
-              </label>
+      {doc && (
+        <Paper withBorder p="md" radius="md" style={{ flex: 1 }}>
+          <Stack gap="md">
+            <Group align="flex-end">
+              <TextInput label="ID" value={doc.id} disabled w={180} />
+              <TextInput
+                label="이름"
+                value={doc.name}
+                onChange={(e) => setDoc({ ...doc, name: e.currentTarget.value })}
+              />
+              <TextInput
+                label="버전"
+                value={doc.version}
+                onChange={(e) => setDoc({ ...doc, version: e.currentTarget.value })}
+                w={80}
+              />
+            </Group>
+
+            <div>
+              <Title order={5} mb="xs">
+                조건
+              </Title>
+              <RuleTreeEditor
+                value={doc.root}
+                onChange={(root) => setDoc({ ...doc, root })}
+                factors={factors}
+                formulaIds={formulaIds}
+              />
             </div>
 
-            <h4>조건</h4>
-            <RuleTreeEditor
-              value={doc.root}
-              onChange={(root) => setDoc({ ...doc, root })}
-              factors={factors}
-              formulaIds={formulaIds}
-            />
-
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-              <button type="button" onClick={handleValidate}>
+            <Group>
+              <Button variant="default" onClick={handleValidate}>
                 저장 전 검증
-              </button>
-              <button type="button" onClick={handleSave}>
-                저장
-              </button>
-              <button type="button" onClick={handleDelete} disabled={!selectedId}>
+              </Button>
+              <Button onClick={handleSave}>저장</Button>
+              <Button
+                color="red"
+                variant="outline"
+                leftSection={<IconTrash size={14} />}
+                onClick={handleDelete}
+                disabled={!selectedId}
+              >
                 삭제
-              </button>
-            </div>
+              </Button>
+            </Group>
 
             {validation && (
-              <div>
-                <strong>검증 결과: {validation.ok ? '통과' : '실패'}</strong>
-                <ul>
-                  {validation.errors.map((err) => (
-                    <li key={err}>{err}</li>
-                  ))}
-                </ul>
-              </div>
+              <Alert
+                icon={validation.ok ? <IconCheck size={16} /> : <IconAlertCircle size={16} />}
+                color={validation.ok ? 'green' : 'red'}
+                title={validation.ok ? '검증 통과' : '검증 실패'}
+              >
+                {!validation.ok && (
+                  <List size="sm">
+                    {validation.errors.map((err) => (
+                      <List.Item key={err}>{err}</List.Item>
+                    ))}
+                  </List>
+                )}
+              </Alert>
             )}
-          </>
-        )}
-        {message && <p>{message}</p>}
-      </div>
-    </div>
+          </Stack>
+        </Paper>
+      )}
+    </Group>
   )
 }

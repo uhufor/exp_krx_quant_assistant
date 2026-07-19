@@ -40,7 +40,7 @@ class EvaluationContext:
     index: pd.DatetimeIndex
     resolve_formula: FormulaResolver
     resolve_rule: RuleResolver | None = None
-    _factor_cache: dict[tuple[str, str], pd.Series] = field(default_factory=dict)
+    _factor_cache: dict[tuple[str, str, str], pd.Series] = field(default_factory=dict)
     _formula_cache: dict[str, pd.Series] = field(default_factory=dict)
     _visiting: set[str] = field(default_factory=set)
 
@@ -52,8 +52,11 @@ def _factor_metadata(factor_id: str):
 def _eval_factor_operand(
     factor_id: str, column: str, params: dict[str, Any], ctx: EvaluationContext
 ) -> pd.Series:
-    """캐시 키 (factor_id, canonical(params)) — 동일 팩터·상이 파라미터는 별개 시계열(D1)."""
-    key = (factor_id, canonical_json(params))
+    """캐시 키 (factor_id, column, canonical(params)) — 동일 팩터·상이 파라미터는 별개 시계열(D1),
+    동일 팩터·동일 파라미터라도 상이 컬럼(예: macd의 macd/signal, bollinger의 lower/middle)은
+    별개 시계열이어야 하므로 column을 키에 포함한다(column 누락 시 다른 컬럼 참조가 캐시를
+    오염시켜 크로스 신호가 항상 0이 되는 버그가 있었음)."""
+    key = (factor_id, column, canonical_json(params))
     cached = ctx._factor_cache.get(key)
     if cached is not None:
         return cached

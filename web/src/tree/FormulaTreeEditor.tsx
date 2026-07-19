@@ -1,3 +1,4 @@
+import { Group, Paper, Select, Stack, Text } from '@mantine/core'
 import { OperandEditor } from './OperandEditor'
 import type { BinaryOpJSON, ExprJSON, FactorOption, UnaryOpJSON } from './types'
 import { defaultOperand, isOperand } from './types'
@@ -10,6 +11,14 @@ type FormulaTreeEditorProps = {
   depth?: number
 }
 
+const NODE_TYPE_DATA = [
+  { value: 'leaf', label: '값(상수/팩터/공식)' },
+  { value: 'binary', label: '이항 연산(+,-,*,/)' },
+  { value: 'unary', label: '단항 연산(음수)' },
+]
+
+const DEPTH_COLORS = ['blue', 'grape', 'teal', 'orange'] as const
+
 /** 공식(Formula) 표현식 트리 재귀 편집기(PRD CRUD — JSON 직접 입력 없이 UI로 생성). */
 export function FormulaTreeEditor({
   value,
@@ -19,8 +28,9 @@ export function FormulaTreeEditor({
   depth = 0,
 }: FormulaTreeEditorProps) {
   const wrapKind = isOperand(value) ? 'leaf' : value.node
+  const accent = DEPTH_COLORS[depth % DEPTH_COLORS.length]
 
-  const handleTypeChange = (newType: string) => {
+  const handleTypeChange = (newType: string | null) => {
     if (newType === 'binary') {
       onChange({
         node: 'binary',
@@ -36,45 +46,51 @@ export function FormulaTreeEditor({
   }
 
   return (
-    <div
-      style={{
-        border: '1px solid #ddd',
-        borderRadius: 4,
-        padding: '0.4rem',
-        marginTop: '0.25rem',
-        background: depth % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.02)',
-      }}
+    <Paper
+      withBorder
+      p="sm"
+      radius="sm"
+      style={{ borderLeft: `3px solid var(--mantine-color-${accent}-5)` }}
     >
-      <select value={wrapKind} onChange={(e) => handleTypeChange(e.target.value)}>
-        <option value="leaf">값(상수/팩터/공식)</option>
-        <option value="binary">이항 연산(+,-,*,/)</option>
-        <option value="unary">단항 연산(음수)</option>
-      </select>
-
-      {isOperand(value) && (
-        <OperandEditor value={value} onChange={onChange} factors={factors} formulaIds={formulaIds} />
-      )}
-
-      {!isOperand(value) && value.node === 'binary' && (
-        <BinaryEditor
-          value={value}
-          onChange={onChange}
-          factors={factors}
-          formulaIds={formulaIds}
-          depth={depth}
+      <Stack gap="xs">
+        <Select
+          label="노드 유형"
+          data={NODE_TYPE_DATA}
+          value={wrapKind}
+          onChange={handleTypeChange}
+          w={220}
         />
-      )}
 
-      {!isOperand(value) && value.node === 'unary' && (
-        <UnaryEditor
-          value={value}
-          onChange={onChange}
-          factors={factors}
-          formulaIds={formulaIds}
-          depth={depth}
-        />
-      )}
-    </div>
+        {isOperand(value) && (
+          <OperandEditor
+            value={value}
+            onChange={onChange}
+            factors={factors}
+            formulaIds={formulaIds}
+          />
+        )}
+
+        {!isOperand(value) && value.node === 'binary' && (
+          <BinaryEditor
+            value={value}
+            onChange={onChange}
+            factors={factors}
+            formulaIds={formulaIds}
+            depth={depth}
+          />
+        )}
+
+        {!isOperand(value) && value.node === 'unary' && (
+          <UnaryEditor
+            value={value}
+            onChange={onChange}
+            factors={factors}
+            formulaIds={formulaIds}
+            depth={depth}
+          />
+        )}
+      </Stack>
+    </Paper>
   )
 }
 
@@ -92,34 +108,43 @@ function BinaryEditor({
   depth: number
 }) {
   return (
-    <div style={{ marginLeft: '1rem' }}>
-      <select
+    <Stack gap={4} pl="md">
+      <Select
+        label="연산자"
+        data={['+', '-', '*', '/']}
         value={value.op}
-        onChange={(e) => onChange({ ...value, op: e.target.value as BinaryOpJSON['op'] })}
-      >
-        {(['+', '-', '*', '/'] as const).map((op) => (
-          <option key={op} value={op}>
-            {op}
-          </option>
-        ))}
-      </select>
-      <div>좌항</div>
-      <FormulaTreeEditor
-        value={value.left}
-        onChange={(left) => onChange({ ...value, left })}
-        factors={factors}
-        formulaIds={formulaIds}
-        depth={depth + 1}
+        onChange={(op) => onChange({ ...value, op: (op ?? '+') as BinaryOpJSON['op'] })}
+        w={80}
       />
-      <div>우항</div>
-      <FormulaTreeEditor
-        value={value.right}
-        onChange={(right) => onChange({ ...value, right })}
-        factors={factors}
-        formulaIds={formulaIds}
-        depth={depth + 1}
-      />
-    </div>
+      <Group gap={4}>
+        <Text size="xs" c="dimmed" w={40}>
+          좌항
+        </Text>
+        <div style={{ flex: 1 }}>
+          <FormulaTreeEditor
+            value={value.left}
+            onChange={(left) => onChange({ ...value, left })}
+            factors={factors}
+            formulaIds={formulaIds}
+            depth={depth + 1}
+          />
+        </div>
+      </Group>
+      <Group gap={4}>
+        <Text size="xs" c="dimmed" w={40}>
+          우항
+        </Text>
+        <div style={{ flex: 1 }}>
+          <FormulaTreeEditor
+            value={value.right}
+            onChange={(right) => onChange({ ...value, right })}
+            factors={factors}
+            formulaIds={formulaIds}
+            depth={depth + 1}
+          />
+        </div>
+      </Group>
+    </Stack>
   )
 }
 
@@ -137,8 +162,10 @@ function UnaryEditor({
   depth: number
 }) {
   return (
-    <div style={{ marginLeft: '1rem' }}>
-      <span>neg(피연산자 부호 반전)</span>
+    <Stack gap={4} pl="md">
+      <Text size="xs" c="dimmed">
+        neg(피연산자 부호 반전)
+      </Text>
       <FormulaTreeEditor
         value={value.operand}
         onChange={(operand) => onChange({ ...value, operand })}
@@ -146,6 +173,6 @@ function UnaryEditor({
         formulaIds={formulaIds}
         depth={depth + 1}
       />
-    </div>
+    </Stack>
   )
 }

@@ -1,3 +1,5 @@
+import { ActionIcon, Button, Group, Paper, Select, Stack } from '@mantine/core'
+import { IconPlus, IconX } from '@tabler/icons-react'
 import { OperandEditor } from './OperandEditor'
 import type { CompositionJSON, FactorOption, PredicateJSON, RuleNodeJSON } from './types'
 import { PREDICATE_OPS, defaultPredicate } from './types'
@@ -10,6 +12,15 @@ type RuleTreeEditorProps = {
   depth?: number
 }
 
+const NODE_TYPE_DATA = [
+  { value: 'predicate', label: '조건(비교/크로스)' },
+  { value: 'AND', label: 'AND(모두 만족)' },
+  { value: 'OR', label: 'OR(하나 이상 만족)' },
+  { value: 'NOT', label: 'NOT(반전)' },
+]
+
+const DEPTH_COLORS = ['indigo', 'pink', 'cyan', 'lime'] as const
+
 /** 규칙(Rule) 조건 트리 재귀 편집기(Predicate 비교/크로스, Composition AND/OR/NOT). */
 export function RuleTreeEditor({
   value,
@@ -18,10 +29,12 @@ export function RuleTreeEditor({
   formulaIds,
   depth = 0,
 }: RuleTreeEditorProps) {
-  const handleTypeChange = (newType: string) => {
+  const accent = DEPTH_COLORS[depth % DEPTH_COLORS.length]
+
+  const handleTypeChange = (newType: string | null) => {
     if (newType === 'predicate') {
       onChange(defaultPredicate(factors))
-    } else {
+    } else if (newType) {
       const operands =
         newType === 'NOT'
           ? [defaultPredicate(factors)]
@@ -33,36 +46,41 @@ export function RuleTreeEditor({
   const wrapKind = value.node === 'predicate' ? 'predicate' : value.op
 
   return (
-    <div
-      style={{
-        border: '1px solid #ddd',
-        borderRadius: 4,
-        padding: '0.4rem',
-        marginTop: '0.25rem',
-        background: depth % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.02)',
-      }}
+    <Paper
+      withBorder
+      p="sm"
+      radius="sm"
+      style={{ borderLeft: `3px solid var(--mantine-color-${accent}-5)` }}
     >
-      <select value={wrapKind} onChange={(e) => handleTypeChange(e.target.value)}>
-        <option value="predicate">조건(비교/크로스)</option>
-        <option value="AND">AND(모두 만족)</option>
-        <option value="OR">OR(하나 이상 만족)</option>
-        <option value="NOT">NOT(반전)</option>
-      </select>
-
-      {value.node === 'predicate' && (
-        <PredicateEditor value={value} onChange={onChange} factors={factors} formulaIds={formulaIds} />
-      )}
-
-      {value.node === 'composition' && (
-        <CompositionEditor
-          value={value}
-          onChange={onChange}
-          factors={factors}
-          formulaIds={formulaIds}
-          depth={depth}
+      <Stack gap="xs">
+        <Select
+          label="노드 유형"
+          data={NODE_TYPE_DATA}
+          value={wrapKind}
+          onChange={handleTypeChange}
+          w={200}
         />
-      )}
-    </div>
+
+        {value.node === 'predicate' && (
+          <PredicateEditor
+            value={value}
+            onChange={onChange}
+            factors={factors}
+            formulaIds={formulaIds}
+          />
+        )}
+
+        {value.node === 'composition' && (
+          <CompositionEditor
+            value={value}
+            onChange={onChange}
+            factors={factors}
+            formulaIds={formulaIds}
+            depth={depth}
+          />
+        )}
+      </Stack>
+    </Paper>
   )
 }
 
@@ -78,32 +96,29 @@ function PredicateEditor({
   formulaIds: string[]
 }) {
   return (
-    <div style={{ marginLeft: '1rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+    <Group gap="xs" wrap="wrap" align="flex-end">
       <OperandEditor
         value={value.left}
         onChange={(left) => onChange({ ...value, left })}
         factors={factors}
         formulaIds={formulaIds}
       />
-      <select
+      <Select
+        label="연산자"
+        data={[...PREDICATE_OPS]}
         value={value.operator}
-        onChange={(e) =>
-          onChange({ ...value, operator: e.target.value as PredicateJSON['operator'] })
+        onChange={(op) =>
+          onChange({ ...value, operator: (op ?? '>') as PredicateJSON['operator'] })
         }
-      >
-        {PREDICATE_OPS.map((op) => (
-          <option key={op} value={op}>
-            {op}
-          </option>
-        ))}
-      </select>
+        w={130}
+      />
       <OperandEditor
         value={value.right}
         onChange={(right) => onChange({ ...value, right })}
         factors={factors}
         formulaIds={formulaIds}
       />
-    </div>
+    </Group>
   )
 }
 
@@ -139,29 +154,37 @@ function CompositionEditor({
   }
 
   return (
-    <div style={{ marginLeft: '1rem' }}>
+    <Stack gap="xs" pl="md">
       {value.operands.map((operand, i) => (
         // eslint-disable-next-line react/no-array-index-key
-        <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.25rem' }}>
-          <RuleTreeEditor
-            value={operand}
-            onChange={(node) => updateOperand(i, node)}
-            factors={factors}
-            formulaIds={formulaIds}
-            depth={depth + 1}
-          />
+        <Group key={i} align="flex-start" gap={4} wrap="nowrap">
+          <div style={{ flex: 1 }}>
+            <RuleTreeEditor
+              value={operand}
+              onChange={(node) => updateOperand(i, node)}
+              factors={factors}
+              formulaIds={formulaIds}
+              depth={depth + 1}
+            />
+          </div>
           {canRemove && (
-            <button type="button" onClick={() => removeOperand(i)}>
-              제거
-            </button>
+            <ActionIcon color="red" variant="subtle" onClick={() => removeOperand(i)} mt={6}>
+              <IconX size={16} />
+            </ActionIcon>
           )}
-        </div>
+        </Group>
       ))}
       {canAdd && (
-        <button type="button" onClick={addOperand}>
-          + 조건 추가
-        </button>
+        <Button
+          variant="light"
+          size="xs"
+          leftSection={<IconPlus size={14} />}
+          onClick={addOperand}
+          style={{ alignSelf: 'flex-start' }}
+        >
+          조건 추가
+        </Button>
       )}
-    </div>
+    </Stack>
   )
 }
