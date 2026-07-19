@@ -395,7 +395,7 @@ def fetch_fundamental_cmd(
 def strategy_backtest_cmd(
     strategy_id: str = typer.Argument(..., help="백테스트할 전략 id"),
     symbols: str = typer.Option(
-        None, "--symbols", help="콤마 구분 종목 목록(생략 시 전략 universe 또는 watchlist)"
+        None, "--symbols", help="콤마 구분 종목 목록(생략 시 전략 universe.symbols 사용)"
     ),
     start: str = typer.Option(None, "--start", help="시작일 YYYY-MM-DD(기본: 5년 전)"),
     end: str = typer.Option(None, "--end", help="종료일 YYYY-MM-DD(기본: 오늘)"),
@@ -443,9 +443,11 @@ def strategy_backtest_cmd(
         raise typer.Exit(1)
 
     requested_symbols = [s.strip() for s in symbols.split(",")] if symbols else None
-    sym_list = resolve_backtest_symbols(defn, requested_symbols, settings.load_watchlist())
+    sym_list = resolve_backtest_symbols(defn, requested_symbols)
     if not sym_list:
-        console.print("[red]대상 종목이 없습니다. --symbols 지정 또는 watchlist 설정 필요[/red]")
+        console.print(
+            "[red]대상 종목이 없습니다. --symbols 지정 또는 전략 universe.symbols 설정 필요[/red]"
+        )
         db.close()
         raise typer.Exit(1)
 
@@ -459,12 +461,23 @@ def strategy_backtest_cmd(
     def _warn_benchmark_failure(bm: str, exc: Exception) -> None:
         console.print(f"[yellow]벤치마크 '{bm}' 수집 실패(무시하고 계속): {exc}[/yellow]")
 
+    data_errors: dict[str, str] = {}
+
+    def _warn_symbol_failure(sym: str, exc: Exception) -> None:
+        data_errors[sym] = str(exc)
+        console.print(f"[yellow]종목 '{sym}' 데이터 조립 실패(건너뛰고 계속): {exc}[/yellow]")
+
     data, benchmark_df = prepare_backtest_data(
         db, defn, sym_list,
         data_source=data_source, start=start_date, end=end_date, benchmark=benchmark,
         resolve_rule=svc.get_rule, resolve_formula=svc.get_formula,
         on_benchmark_warning=_warn_benchmark_failure,
+        on_symbol_error=_warn_symbol_failure,
     )
+    if not data:
+        console.print("[red]모든 종목의 데이터 조립이 실패했습니다[/red]")
+        db.close()
+        raise typer.Exit(1)
 
     try:
         report = svc.backtest(
@@ -476,6 +489,11 @@ def strategy_backtest_cmd(
         db.close()
         raise typer.Exit(1) from e
     db.close()
+
+    if report.errors:
+        console.print("[yellow]일부 종목 제외됨:[/yellow]")
+        for sym, msg in report.errors.items():
+            console.print(f"  [yellow]{sym}: {msg}[/yellow]")
 
     metrics = report.metrics
     title = f"백테스트: {strategy_id}"

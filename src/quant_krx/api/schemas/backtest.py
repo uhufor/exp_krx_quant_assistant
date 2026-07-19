@@ -66,6 +66,7 @@ def serialize_backtest_report(report: BacktestReport) -> dict[str, Any]:
         },
         "benchmark": report.benchmark,
         "benchmark_note": report.benchmark_note,
+        "errors": report.errors,
     }
 
 

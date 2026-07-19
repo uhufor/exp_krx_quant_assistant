@@ -25,3 +25,14 @@ class MissingDataError(EvaluationError):
         super().__init__(f"데이터 계약 미충족: '{kind}' 프레임이 없습니다(요구: {ids})")
         self.kind = kind
         self.required_by = required_by
+
+
+class EmptyOhlcvError(EvaluationError):
+    """OHLCV가 0행 — 해당 종목이 선택한 데이터소스에 없거나 기간 밖일 때(vectorbt 크래시 방어)."""
+
+    def __init__(self, symbol: str):
+        super().__init__(
+            f"'{symbol}' 종목의 OHLCV 데이터가 없습니다"
+            "(데이터소스에 해당 종목이 없거나 조회 기간 밖일 수 있습니다)"
+        )
+        self.symbol = symbol

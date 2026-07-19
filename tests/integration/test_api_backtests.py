@@ -122,6 +122,44 @@ def test_run_backtest_draft_strategy_rejected_with_409(tmp_path) -> None:
     assert resp.status_code == 409
 
 
+def test_run_backtest_symbol_not_in_fixture_returns_404_not_500(tmp_path) -> None:
+    """fixture에 없는 유일한 종목 요청 시 vectorbt zero-size 크래시(500) 대신 명확한 404."""
+    client = _client(tmp_path)
+    _seed_runnable_strategy(client)
+
+    resp = client.post(
+        "/api/backtests",
+        json={"strategy_id": "smoke_strategy", "symbols": ["035720"], "data_source": "fixture"},
+    )
+    assert resp.status_code == 404
+    assert "035720" in resp.json()["detail"]
+    assert "OHLCV" in resp.json()["detail"]
+
+
+def test_run_backtest_partial_symbol_failure_isolated(tmp_path) -> None:
+    """일부 종목만 데이터가 없을 때 배치 전체가 아니라 해당 종목만 errors로 격리된다(FR-17)."""
+    client = _client(tmp_path)
+    _seed_runnable_strategy(client)
+
+    resp = client.post(
+        "/api/backtests",
+        json={
+            "strategy_id": "smoke_strategy",
+            "symbols": ["005930", "035720"],
+            "start": "2024-01-02",
+            "end": "2024-12-31",
+            "data_source": "fixture",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+
+    assert "005930" in body["results"]
+    assert "035720" not in body["results"]
+    assert "035720" in body["errors"]
+    assert "OHLCV" in body["errors"]["035720"]
+
+
 def test_run_backtest_no_symbols_returns_404(tmp_path) -> None:
     client = _client(tmp_path)
     _seed_runnable_strategy(client)  # universe.symbols == [], watchlist도 없음(tmp_path 격리)

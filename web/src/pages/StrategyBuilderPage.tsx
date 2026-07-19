@@ -269,7 +269,7 @@ export function StrategyBuilderPage() {
             />
 
             <TagsInput
-              label="대상 종목(universe.symbols, 비어있으면 watchlist 전체)"
+              label="대상 종목(universe.symbols, 비어있으면 백테스트 시 종목을 직접 지정해야 함)"
               placeholder="종목코드 입력 후 Enter(예: 005930)"
               value={doc.universe.symbols}
               onChange={(symbols) => setDoc({ ...doc, universe: { symbols } })}
