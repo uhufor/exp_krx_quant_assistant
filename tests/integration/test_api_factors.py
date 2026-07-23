@@ -28,7 +28,7 @@ def test_list_factors_returns_catalog(tmp_path) -> None:
     assert resp.status_code == 200
     body = resp.json()
     assert isinstance(body, list)
-    assert len(body) == 32  # CLAUDE.md: 32종(가격·기술 7 + 밸류에이션 11 + 재무제표 14)
+    assert len(body) == 35  # 32종 + trading_value/volume/rolling_high(EPIC-03 노코드 스크리닝)
     ids = {item["id"] for item in body}
     assert "sma" in ids
     assert "per" in ids

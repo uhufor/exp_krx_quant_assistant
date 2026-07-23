@@ -13,12 +13,14 @@ import { BacktestPage } from './pages/BacktestPage'
 import { FactorsPage } from './pages/FactorsPage'
 import { FormulaBuilderPage } from './pages/FormulaBuilderPage'
 import { RuleBuilderPage } from './pages/RuleBuilderPage'
+import { ScreeningBuilderPage } from './pages/ScreeningBuilderPage'
 import { StrategyBuilderPage } from './pages/StrategyBuilderPage'
 
 const TABS = [
   { value: 'factors', label: '팩터' },
   { value: 'formulas', label: '공식' },
   { value: 'rules', label: '규칙' },
+  { value: 'screenings', label: '스크리닝' },
   { value: 'strategies', label: '전략' },
   { value: 'backtest', label: '백테스트' },
 ] as const
@@ -74,6 +76,9 @@ function App() {
           </Tabs.Panel>
           <Tabs.Panel value="rules">
             <RuleBuilderPage />
+          </Tabs.Panel>
+          <Tabs.Panel value="screenings">
+            <ScreeningBuilderPage />
           </Tabs.Panel>
           <Tabs.Panel value="strategies">
             <StrategyBuilderPage />

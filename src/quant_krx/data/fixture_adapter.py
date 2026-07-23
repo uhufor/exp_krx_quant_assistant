@@ -48,3 +48,9 @@ class FixtureAdapter:
 
     def fetch_metadata(self, symbols: list[str]) -> dict[str, dict]:
         return {s: {"symbol": s, "source": self.source_name} for s in symbols}
+
+    def fetch_market_snapshot(self, date: date, market: str = "KRX") -> pd.DataFrame:
+        df = self._load()
+        result = df[df["date"] == date][["symbol", "close", "volume"]].reset_index(drop=True)
+        result["trading_value"] = result["close"] * result["volume"]
+        return result[["symbol", "close", "volume", "trading_value"]]

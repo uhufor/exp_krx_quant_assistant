@@ -61,3 +61,15 @@ class DataProvider(Protocol):
     ) -> OHLCVData: ...
 
     def fetch_metadata(self, symbols: list[str]) -> dict[str, dict]: ...
+
+    def fetch_market_snapshot(self, date: date, market: str = "KRX") -> pd.DataFrame:
+        """특정 일자 시장 전체 종목의 스냅샷(종가/거래량/거래대금)을 한 번에 조회한다.
+
+        스크리닝(거래대금/거래량 순위 등)이 종목별 순차 조회 없이 시장 전체를
+        일괄 조회할 수 있도록 하기 위한 메서드. 반환 컬럼 계약:
+        - symbol (str, 6자리 zfill)
+        - close (float)
+        - volume (int)
+        - trading_value (float, 네이티브 거래대금 — 체결가×수량 합. close*volume 근사치가 아님)
+        """
+        ...

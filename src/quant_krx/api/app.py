@@ -7,7 +7,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from quant_krx.api.errors import register_error_handlers
-from quant_krx.api.routers import backtests, factors, formulas, rules, strategies, templates
+from quant_krx.api.routers import (
+    backtests,
+    factors,
+    formulas,
+    rules,
+    screenings,
+    strategies,
+    templates,
+)
 
 # src/quant_krx/api/app.py -> parents[3] == 저장소 루트(web/dist가 위치하는 곳)
 _WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
@@ -26,6 +34,7 @@ def create_app() -> FastAPI:
     app.include_router(factors.router, prefix="/api/factors", tags=["factors"])
     app.include_router(formulas.router, prefix="/api/formulas", tags=["formulas"])
     app.include_router(rules.router, prefix="/api/rules", tags=["rules"])
+    app.include_router(screenings.router, prefix="/api/screenings", tags=["screenings"])
     app.include_router(strategies.router, prefix="/api/strategies", tags=["strategies"])
     app.include_router(templates.router, prefix="/api/templates", tags=["templates"])
     app.include_router(backtests.router, prefix="/api/backtests", tags=["backtests"])

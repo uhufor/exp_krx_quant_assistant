@@ -1,5 +1,6 @@
 import dataclasses
 import json
+import logging
 import math
 import sys
 from datetime import datetime
@@ -19,6 +20,10 @@ from quant_krx.config.settings import get_settings
 # 서드파티 라이브러리가 os.getenv()로 자격증명(KRX_ID/KRX_PW)을 직접 읽으므로,
 # 다른 임포트가 pykrx를 lazy-import하기 전에 .env를 os.environ에 명시적으로 반영한다.
 load_dotenv()
+
+# settings.log_level은 선언만 되어 있고 어디서도 logging에 연결되지 않아 quant_krx.*
+# 로거의 logger.info()가 전부 무음 처리되던 기존 결함 — 여기서 한 번만 연결한다.
+logging.basicConfig(level=get_settings().log_level)
 
 app = typer.Typer(name="quant-krx", help="KRX Korean Stock Quant Trading Assistant")
 console = Console()
@@ -874,6 +879,196 @@ def strategy_import_cmd(
         raise typer.Exit(1) from e
     console.print(f"[green]전략 '{bundle.strategy.id}' 가져오기 완료[/green]")
     db.close()
+
+
+def _open_screening(data_source: str = "fixture"):
+    from quant_krx.screening.service import ScreeningService
+    from quant_krx.storage.db import Database
+    from quant_krx.workspace.data_loading import _ohlcv_provider_for
+
+    settings = get_settings()
+    db = Database(settings.duckdb_path)
+    db.connect()
+    provider = _ohlcv_provider_for(data_source)
+    return db, ScreeningService(db, provider)
+
+
+@app.command("screen-create")
+def screen_create_cmd(
+    input_source: str = typer.Argument(..., help="JSON 파일 경로 또는 '-'(stdin)"),
+):
+    """스크리닝 조건을 생성/전체교체한다."""
+    from quant_krx.screening.definition import ScreeningCondition
+    from quant_krx.screening.errors import ScreeningError
+
+    db, svc = _open_screening()
+    try:
+        cond = ScreeningCondition.from_dict(_read_json_input(input_source))
+        svc.upsert_condition(cond, now=datetime.utcnow())
+    except (ScreeningError, OSError, json.JSONDecodeError, KeyError) as e:
+        console.print(f"[red]{e}[/red]")
+        db.close()
+        raise typer.Exit(1) from e
+    console.print(f"[green]스크리닝 조건 '{cond.id}' 저장 완료[/green]")
+    db.close()
+
+
+@app.command("screen-show")
+def screen_show_cmd(condition_id: str = typer.Argument(..., help="조회할 스크리닝 조건 id")):
+    """스크리닝 조건을 rich 표/패널로 조회한다."""
+    from quant_krx.workspace.errors import not_found_hint
+
+    db, svc = _open_screening()
+    cond = svc.get_condition(condition_id)
+    available = [c.id for c in svc.list_conditions()]
+    db.close()
+    if cond is None:
+        hint = not_found_hint(available)
+        console.print(f"[red]스크리닝 조건 '{condition_id}'을(를) 찾을 수 없습니다.{hint}[/red]")
+        raise typer.Exit(1)
+
+    table = Table(title=f"스크리닝 조건: {cond.id}", show_lines=True)
+    table.add_column("필드", style="bold")
+    table.add_column("값")
+    table.add_row("name", cond.name)
+    table.add_row("version", cond.version)
+    table.add_row("market", cond.universe.market)
+    table.add_row("exclusion_filters", ", ".join(sorted(cond.universe.exclusion_filters)) or "-")
+    table.add_row("schema_version", str(cond.schema_version))
+    console.print(table)
+    console.print(
+        Panel(
+            json.dumps(cond.root.to_dict(), ensure_ascii=False, indent=2),
+            title="조건 트리(root)",
+        )
+    )
+
+
+@app.command("screen-edit")
+def screen_edit_cmd(
+    condition_id: str = typer.Argument(..., help="수정할 스크리닝 조건 id"),
+    input_source: str = typer.Argument(..., help="JSON 파일 경로 또는 '-'(stdin) — 전체 교체"),
+):
+    """스크리닝 조건을 전체 JSON 교체로 수정한다(부분 필드 패치 없음)."""
+    from quant_krx.screening.definition import ScreeningCondition
+    from quant_krx.screening.errors import ScreeningError
+
+    db, svc = _open_screening()
+    try:
+        cond = ScreeningCondition.from_dict(_read_json_input(input_source))
+        if cond.id != condition_id:
+            db.close()
+            console.print(f"[red]JSON id '{cond.id}'가 인자 id '{condition_id}'와 다릅니다[/red]")
+            raise typer.Exit(1)
+        svc.upsert_condition(cond, now=datetime.utcnow())
+    except (ScreeningError, OSError, json.JSONDecodeError, KeyError) as e:
+        console.print(f"[red]{e}[/red]")
+        db.close()
+        raise typer.Exit(1) from e
+    console.print(f"[green]스크리닝 조건 '{condition_id}' 수정 완료[/green]")
+    db.close()
+
+
+@app.command("screen-delete")
+def screen_delete_cmd(condition_id: str = typer.Argument(..., help="삭제할 스크리닝 조건 id")):
+    """스크리닝 조건을 삭제한다."""
+    db, svc = _open_screening()
+    svc.delete_condition(condition_id)
+    db.close()
+    console.print(f"[green]스크리닝 조건 '{condition_id}' 삭제 완료[/green]")
+
+
+@app.command("screen-list")
+def screen_list_cmd():
+    """저장된 스크리닝 조건 목록을 표시한다."""
+    db, svc = _open_screening()
+    conditions = svc.list_conditions()
+    db.close()
+    table = Table(title="스크리닝 조건 목록", show_lines=True)
+    table.add_column("id", style="bold")
+    table.add_column("name")
+    table.add_column("version")
+    for cond in conditions:
+        table.add_row(cond.id, cond.name, cond.version)
+    console.print(table)
+
+
+@app.command("screen-validate")
+def screen_validate_cmd(condition_id: str = typer.Argument(..., help="검증할 스크리닝 조건 id")):
+    """스크리닝 조건의 참조 무결성을 실행 없이 검증한다."""
+    from quant_krx.workspace.errors import not_found_hint
+
+    db, svc = _open_screening()
+    cond = svc.get_condition(condition_id)
+    if cond is None:
+        available = [c.id for c in svc.list_conditions()]
+        db.close()
+        hint = not_found_hint(available)
+        console.print(f"[red]스크리닝 조건 '{condition_id}'을(를) 찾을 수 없습니다.{hint}[/red]")
+        raise typer.Exit(1)
+    result = svc.validate_condition(cond)
+    db.close()
+    if result.ok:
+        console.print(f"[green]스크리닝 조건 '{condition_id}' 검증 통과[/green]")
+        return
+    console.print(f"[red]스크리닝 조건 '{condition_id}' 검증 실패:[/red]")
+    for err in result.errors:
+        console.print(f"  - {err}")
+    raise typer.Exit(1)
+
+
+@app.command("screen-run")
+def screen_run_cmd(
+    condition_id: str = typer.Argument(..., help="실행할 스크리닝 조건 id"),
+    as_of: str = typer.Option(None, "--as-of", help="기준일(YYYY-MM-DD, 생략 시 오늘)"),
+    data_source: str = typer.Option(
+        "fixture", "--data-source", help="데이터 소스: fixture | fdr | pykrx"
+    ),
+):
+    """스크리닝 조건을 실행해 통과 종목(코드+이름)을 rich 표로 출력한다(저장 없음)."""
+    from datetime import date
+
+    from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeElapsedColumn
+
+    from quant_krx.screening.errors import ScreeningError
+
+    if data_source not in ("fixture", "fdr", "pykrx"):
+        console.print(f"[red]알 수 없는 --data-source '{data_source}'[/red]")
+        raise typer.Exit(1)
+
+    as_of_date = datetime.strptime(as_of, "%Y-%m-%d").date() if as_of else date.today()
+
+    db, svc = _open_screening(data_source)
+    try:
+        universe_size = svc.count_universe(condition_id)
+        console.print(f"대상 종목: [bold]{universe_size}[/bold]개")
+
+        with Progress(
+            TextColumn("종목 OHLCV 확보"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task("screening", total=universe_size)
+
+            def _on_progress(processed: int, total: int) -> None:
+                progress.update(task, completed=processed, total=total)
+
+            passed = svc.run(condition_id, as_of=as_of_date, on_progress=_on_progress)
+    except ScreeningError as e:
+        console.print(f"[red]{e}[/red]")
+        db.close()
+        raise typer.Exit(1) from e
+    db.close()
+
+    table = Table(title=f"스크리닝 결과: {condition_id} (as_of={as_of_date})", show_lines=True)
+    table.add_column("종목코드", style="bold")
+    table.add_column("종목명")
+    for symbol, name in passed:
+        table.add_row(symbol, name)
+    console.print(table)
+    console.print(f"[green]통과 종목 {len(passed)}건[/green]")
 
 
 if __name__ == "__main__":

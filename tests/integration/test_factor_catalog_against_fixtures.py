@@ -68,7 +68,7 @@ def test_all_32_factors_compute_without_error_on_real_fixture_pipeline(
     fi = FactorInput(ohlcv=bundle.ohlcv, valuation=bundle.valuation, financials=bundle.financials)
 
     factors = list_factors()
-    assert len(factors) == 32
+    assert len(factors) == 35
 
     for meta in factors:
         from quant_krx.factors.registry import get_factor
