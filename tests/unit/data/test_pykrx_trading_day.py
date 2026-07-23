@@ -14,15 +14,20 @@ class _StubStock:
         self.business_day = business_day
         self.holiday = holiday
         self.requested_dates: list[str] = []
+        self.ticker_list_calls = 0
 
     def get_nearest_business_day_in_a_week(self, date_str: str, prev: bool = True) -> str:
         return self.business_day if date_str == self.holiday else date_str
 
     def get_market_ticker_list(self, date_str: str, market: str = "KOSPI") -> list[str]:
         self.requested_dates.append(date_str)
+        self.ticker_list_calls += 1
         if date_str == self.holiday:
             return []
         return ["005930"] if market == "KOSPI" else ["247540"]
+
+    def get_market_ticker_name(self, symbol: str) -> str:
+        return {"005930": "삼성전자", "247540": "에코프로비엠"}.get(symbol, symbol)
 
     def get_market_ohlcv_by_ticker(self, date_str: str, market: str = "KOSPI") -> pd.DataFrame:
         self.requested_dates.append(date_str)
@@ -141,3 +146,57 @@ def test_fetch_ohlcv_bulk_by_date_falls_back_to_nearest_business_day_on_holiday(
 
     assert not df.empty
     assert "20260723" not in stub.requested_dates
+
+
+# --- fetch_metadata market 분류 (KOSPI/KOSDAQ 표시 버그 회귀) ------------------------
+
+
+def test_fetch_metadata_includes_market_and_reuses_list_symbols_cache(monkeypatch):
+    """list_symbols() 이후 fetch_metadata()를 호출하면(스크리닝 run()의 통상 경로) 이미
+    조회한 KOSPI/KOSDAQ 소속 정보를 그대로 재사용해 get_market_ticker_list를 추가로
+    호출하지 않는다 — 추가 호출마다 간헐적 KRX 세션 실패에 노출되는 지점이 늘어나므로
+    같은 인스턴스 안에서는 캐시를 재사용해야 한다."""
+    stub = _StubStock(business_day="20260722", holiday="20260723")
+    monkeypatch.setattr("quant_krx.data.pykrx_adapter._krx_stock", lambda: stub)
+
+    adapter = PyKrxAdapter()
+    symbols = adapter.list_symbols(market="KRX")
+    assert symbols == ["005930", "247540"]
+    calls_after_list_symbols = stub.ticker_list_calls
+
+    metadata = adapter.fetch_metadata(symbols)
+
+    assert metadata["005930"]["market"] == "KOSPI"
+    assert metadata["247540"]["market"] == "KOSDAQ"
+    assert stub.ticker_list_calls == calls_after_list_symbols  # 추가 네트워크 호출 없음
+
+
+def test_fetch_metadata_without_prior_list_symbols_still_classifies_market(monkeypatch):
+    """list_symbols()를 먼저 호출하지 않고 fetch_metadata()만 단독 호출해도(캐시 미스)
+    KOSPI/KOSDAQ 분류가 정상 동작한다(폴백 경로)."""
+    stub = _StubStock(business_day="20260722", holiday="20260723")
+    monkeypatch.setattr("quant_krx.data.pykrx_adapter._krx_stock", lambda: stub)
+
+    adapter = PyKrxAdapter()
+    metadata = adapter.fetch_metadata(["005930", "247540"])
+
+    assert metadata["005930"]["market"] == "KOSPI"
+    assert metadata["247540"]["market"] == "KOSDAQ"
+
+
+def test_fetch_metadata_market_empty_when_ticker_list_lookup_fails(monkeypatch):
+    """KOSPI/KOSDAQ 목록 조회 자체가 실패해도(간헐적 KRX 세션 실패 등) fetch_metadata는
+    예외를 전파하지 않고 market=""(GUI에서 "-" 표시)으로 안전하게 폴백한다."""
+
+    class _BrokenMarketListStock(_StubStock):
+        def get_market_ticker_list(self, date_str: str, market: str = "KOSPI") -> list[str]:
+            raise RuntimeError("KRX 세션 실패(예: 로그인 간헐적 실패)")
+
+    stub = _BrokenMarketListStock(business_day="20260722", holiday="20260723")
+    monkeypatch.setattr("quant_krx.data.pykrx_adapter._krx_stock", lambda: stub)
+
+    adapter = PyKrxAdapter()
+    metadata = adapter.fetch_metadata(["005930"])
+
+    assert metadata["005930"]["market"] == ""
+    assert metadata["005930"]["name"] == "삼성전자"  # market 실패가 name 조회까지 막지 않음

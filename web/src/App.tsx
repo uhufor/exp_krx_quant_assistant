@@ -20,9 +20,9 @@ const TABS = [
   { value: 'factors', label: '팩터' },
   { value: 'formulas', label: '공식' },
   { value: 'rules', label: '규칙' },
-  { value: 'screenings', label: '스크리닝' },
   { value: 'strategies', label: '전략' },
   { value: 'backtest', label: '백테스트' },
+  { value: 'screenings', label: '스크리닝' },
 ] as const
 type Tab = (typeof TABS)[number]['value']
 
@@ -77,14 +77,14 @@ function App() {
           <Tabs.Panel value="rules">
             <RuleBuilderPage />
           </Tabs.Panel>
-          <Tabs.Panel value="screenings">
-            <ScreeningBuilderPage />
-          </Tabs.Panel>
           <Tabs.Panel value="strategies">
             <StrategyBuilderPage />
           </Tabs.Panel>
           <Tabs.Panel value="backtest">
             <BacktestPage />
+          </Tabs.Panel>
+          <Tabs.Panel value="screenings">
+            <ScreeningBuilderPage />
           </Tabs.Panel>
         </Tabs>
       </AppShell.Main>

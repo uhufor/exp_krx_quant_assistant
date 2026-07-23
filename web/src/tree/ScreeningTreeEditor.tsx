@@ -16,6 +16,7 @@ import {
   SCREENING_RANK_COLUMNS,
   SCREENING_RANK_METRICS,
   defaultScreeningPredicate,
+  nextCompositionOperands,
 } from './screeningTypes'
 import type {
   ScreeningCompositionJSON,
@@ -63,10 +64,9 @@ export function ScreeningTreeEditor({
     if (newType === 'predicate') {
       onChange(defaultScreeningPredicate(factors))
     } else if (newType === 'AND' || newType === 'OR' || newType === 'NOT') {
-      const operands =
-        newType === 'NOT'
-          ? [defaultScreeningPredicate(factors)]
-          : [defaultScreeningPredicate(factors), defaultScreeningPredicate(factors)]
+      // AND/OR/NOT 사이 전환은 같은 composition 형태이므로 기존 하위 트리(operands)를
+      // 보존한다(버그 리포트 I5) — nextCompositionOperands 참고.
+      const operands = nextCompositionOperands(newType, value, factors)
       onChange({ node: 'composition', op: newType, operands })
     } else if (newType === 'window_predicate') {
       onChange({

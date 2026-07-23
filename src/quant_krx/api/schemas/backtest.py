@@ -73,5 +73,6 @@ def serialize_backtest_report(report: BacktestReport) -> dict[str, Any]:
 def _serialize_result(result: QuantBacktestResult) -> dict[str, Any]:
     return {
         "equity_curve": serialize_equity_curve(result.equity_curve),
+        "price_curve": serialize_equity_curve(result.price),
         "trades": serialize_trades(result.trades),
     }

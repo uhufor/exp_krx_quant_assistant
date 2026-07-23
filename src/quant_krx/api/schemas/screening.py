@@ -58,6 +58,7 @@ class ScreeningUniverseSizeResult(BaseModel):
 class ScreeningRunResultItem(BaseModel):
     symbol: str
     name: str
+    market: str  # "KOSPI" | "KOSDAQ" | "" (provider가 판별하지 못한 경우)
 
 
 class ScreeningRunResult(BaseModel):
@@ -68,7 +69,7 @@ class ScreeningRunResult(BaseModel):
 
     @classmethod
     def from_domain(
-        cls, condition_id: str, as_of: date, passed: list[tuple[str, str]]
+        cls, condition_id: str, as_of: date, passed: list[tuple[str, str, str]]
     ) -> ScreeningRunResult:
-        items = [ScreeningRunResultItem(symbol=s, name=n) for s, n in passed]
+        items = [ScreeningRunResultItem(symbol=s, name=n, market=m) for s, n, m in passed]
         return cls(condition_id=condition_id, as_of=as_of, passed=items, count=len(items))

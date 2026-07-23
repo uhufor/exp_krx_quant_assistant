@@ -60,7 +60,11 @@ class DataProvider(Protocol):
         end: date,
     ) -> OHLCVData: ...
 
-    def fetch_metadata(self, symbols: list[str]) -> dict[str, dict]: ...
+    def fetch_metadata(self, symbols: list[str]) -> dict[str, dict]:
+        """종목별 메타데이터. 반환 dict의 값은 최소 {"symbol": str}이며, 구현체가 알 수 있으면
+        "name"(종목명)과 "market"("KOSPI" | "KOSDAQ" | 미상 시 "")도 채운다. 두 키 모두
+        선택 사항(호출자는 .get()으로 안전하게 접근해야 한다)."""
+        ...
 
     def fetch_market_snapshot(self, date: date, market: str = "KRX") -> pd.DataFrame:
         """특정 일자 시장 전체 종목의 스냅샷(종가/거래량/거래대금)을 한 번에 조회한다.

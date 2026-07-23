@@ -162,6 +162,28 @@ def extract_rank_predicates(node: Node) -> list[RankPredicate]:
     return []
 
 
+def tree_requires_ohlcv(node: Node) -> bool:
+    """조건 트리가 종목별 시계열 OHLCV 평가를 필요로 하는지 여부.
+
+    RankPredicate는 as_of 시점 시장 스냅샷만으로 평가되는 정적 횡단면 사실이라
+    OHLCV 이력이 전혀 필요 없다(evaluation.py의 RankPredicate 분기 참고). 트리 전체가
+    RankPredicate로만 구성되면(예: "거래대금 Top100 AND 거래량 Top100") OHLCV 확보 자체를
+    생략할 수 있다 — 결측/일시 조회 실패 종목이 순수 순위 조건에서 부당하게 탈락하는 것을
+    막고(정확성), 불필요한 대량 OHLCV fetch도 피한다(성능). WindowPredicate는 inner가
+    실제로 OHLCV를 요구할 때만 필요하다고 판단한다(내부가 RankPredicate뿐이면 결과가
+    항상 상수이므로 windowing이 무의미하되 안전하다).
+    """
+    if isinstance(node, RankPredicate):
+        return False
+    if isinstance(node, Predicate):
+        return True
+    if isinstance(node, Composition):
+        return any(tree_requires_ohlcv(child) for child in node.operands)
+    if isinstance(node, WindowPredicate):
+        return tree_requires_ohlcv(node.inner)
+    return True
+
+
 def default_factor_lookback_resolver(factor_id: str, params: Mapping[str, Any]) -> int:
     """팩터별 warm-up 봉수 기본 추정 — 흔한 파라미터명에서 값을 찾아 여유를 더한다.
 
@@ -208,5 +230,7 @@ def estimate_required_lookback(
         )
         return node.n_bars + inner
     if isinstance(node, RankPredicate):
-        return factor_lookback_resolver(node.factor_id, dict(node.params))
+        # RankPredicate는 시장 스냅샷(as_of 단일 시점)만으로 평가되고 종목별 시계열을
+        # 전혀 쓰지 않으므로(tree_requires_ohlcv 참고) 이력이 필요 없다(0봉).
+        return 0
     return 0

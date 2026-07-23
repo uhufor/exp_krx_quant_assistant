@@ -320,6 +320,38 @@ class TestSocketTimeoutIsolation:
         assert len(result["005930"]) == 2
         assert result["999999"].empty  # 타임아웃으로 실패 처리되어 격리됨
 
+    def test_with_socket_timeout_serializes_concurrent_calls(self):
+        """전역 socket.setdefaulttimeout() mutation 구간은 락으로 직렬화된다(I3 회귀) —
+        직렬화가 없으면 동시 실행 중인 두 스크리닝의 fetch 구간이 서로의 타임아웃
+        설정을 덮어쓸 수 있다(먼저 끝난 쪽의 finally 복원이 다른 실행의 보호를 제거)."""
+        import threading
+
+        from quant_krx.screening.universe_data import _with_socket_timeout
+
+        in_critical_section = threading.Event()
+        overlap_detected = threading.Event()
+        barrier = threading.Barrier(2)
+
+        def _worker() -> None:
+            barrier.wait()
+
+            def _body() -> None:
+                if in_critical_section.is_set():
+                    overlap_detected.set()
+                in_critical_section.set()
+                time.sleep(0.05)
+                in_critical_section.clear()
+
+            _with_socket_timeout(_body)
+
+        threads = [threading.Thread(target=_worker) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+
+        assert not overlap_detected.is_set()
+
 
 class TestProgressLogging:
     def test_logs_info_per_symbol_with_progress_and_timing(self, db, caplog):

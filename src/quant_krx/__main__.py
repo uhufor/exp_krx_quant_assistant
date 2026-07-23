@@ -1065,8 +1065,9 @@ def screen_run_cmd(
     table = Table(title=f"스크리닝 결과: {condition_id} (as_of={as_of_date})", show_lines=True)
     table.add_column("종목코드", style="bold")
     table.add_column("종목명")
-    for symbol, name in passed:
-        table.add_row(symbol, name)
+    table.add_column("시장")
+    for symbol, name, market in passed:
+        table.add_row(symbol, name, market or "-")
     console.print(table)
     console.print(f"[green]통과 종목 {len(passed)}건[/green]")
 

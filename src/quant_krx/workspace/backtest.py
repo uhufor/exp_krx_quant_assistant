@@ -105,6 +105,7 @@ def run_single_symbol_backtest(
         trades=trades_df,
         equity_curve=pf.value(),
         run_id=run_id,
+        price=close,
     )
 
 

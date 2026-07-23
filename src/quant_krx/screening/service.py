@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -25,18 +26,58 @@ from quant_krx.screening.evaluation import (
     _eval_screening_node,
     default_factor_lookback_resolver,
     estimate_required_lookback,
+    tree_requires_ohlcv,
 )
 from quant_krx.screening.ranking import apply_rank_predicates
 from quant_krx.screening.universe import resolve_scan_universe
 from quant_krx.screening.universe_data import fetch_universe_ohlcv_cached
 from quant_krx.storage.db import Database
 
+logger = logging.getLogger(__name__)
+
 # RankPredicate.column이 가리켜야 하는 시장 스냅샷 네이티브 컬럼(ranking.py의 계약과 동일).
 _SNAPSHOT_COLUMNS = frozenset({"close", "volume", "trading_value"})
 
-# lookback 봉수를 달력일로 환산할 때의 여유 배수(주말·휴장일 보정). 정교한 거래일 캘린더
-# 계산은 이 스토리 범위 밖 — 넉넉한 달력일 여유로 warm-up 구간을 확보한다.
+# lookback 봉수를 달력일로 환산할 때의 여유 배수(주말·휴장일 보정). provider가
+# list_trading_days를 지원하지 않을 때만 쓰는 폴백 추정치 — 지원하는 provider(PyKrx)는
+# _compute_lookback_start가 실제 거래일 캘린더를 역산해 이 배수보다 정밀하게 계산한다.
 _CALENDAR_DAY_MARGIN = 1.5
+
+# _compute_lookback_start가 거래일 부족(공휴일 군집 등)으로 재시도할 최대 횟수 —
+# 매 시도마다 조회 구간을 2배로 넓힌다.
+_MAX_LOOKBACK_EXPANSION_ATTEMPTS = 3
+
+# 빈 DataFrame(순수 RankPredicate 조건 평가용) — OHLCV 확보 자체가 불필요한 트리에서
+# ScreeningEvaluationContext.ohlcv 자리를 채우는 더미 값(RankPredicate 평가는 이를
+# 참조하지 않는다, tree_requires_ohlcv 참고).
+_EMPTY_OHLCV = pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+
+
+def _compute_lookback_start(provider: DataProvider, as_of: date, lookback_bars: int) -> date:
+    """lookback_bars개의 실제 거래일을 확보할 수 있는 달력 시작일을 계산한다.
+
+    provider가 list_trading_days를 지원하면(PyKrx) 실제 거래일 캘린더를 역산해 정확한
+    시작일을 구한다 — 고정 배수(_CALENDAR_DAY_MARGIN) 추정은 설/추석 등 공휴일 군집
+    구간에서 거래일 수를 과소평가해 warm-up 부족(팩터 NaN → 조용한 탈락)을 유발할 수
+    있기 때문이다. 조회 구간에 거래일이 부족하면 구간을 2배씩 넓혀 재시도하고, 그래도
+    부족하면(available data 자체가 짧은 경우) 마지막 후보 시작일로 폴백한다 — 명확한
+    실패보다 최대한 확보한 이력으로 계속 진행하는 편이 더 안전하다. list_trading_days를
+    지원하지 않는 provider(FDR/Fixture)는 기존 배수 추정으로 폴백한다.
+    """
+    if lookback_bars <= 0:
+        return as_of
+    if not hasattr(provider, "list_trading_days"):
+        return as_of - timedelta(days=int(lookback_bars * _CALENDAR_DAY_MARGIN))
+
+    margin = _CALENDAR_DAY_MARGIN
+    candidate_start = as_of
+    for _ in range(_MAX_LOOKBACK_EXPANSION_ATTEMPTS):
+        candidate_start = as_of - timedelta(days=int(lookback_bars * margin))
+        trading_days = provider.list_trading_days(candidate_start, as_of)
+        if len(trading_days) >= lookback_bars + 1:
+            return sorted(trading_days)[-(lookback_bars + 1)]
+        margin *= 2
+    return candidate_start
 
 
 @dataclass(frozen=True)
@@ -112,10 +153,12 @@ class ScreeningService:
         *,
         as_of: date | None = None,
         on_progress: Callable[[int, int], None] | None = None,
-    ) -> list[tuple[str, str]]:
-        """on_progress(processed, total)는 OHLCV 확보 단계에서 종목 단위로 호출된다
-        (total=유니버스 크기). 순위 사전계산·평가 단계는 진행률 콜백 대상이 아니다 —
-        전체 소요시간의 대부분이 OHLCV fetch 단계에 있기 때문이다."""
+    ) -> list[tuple[str, str, str]]:
+        """반환은 (symbol, name, market) 튜플 목록 — market은 provider.fetch_metadata가
+        채운 "KOSPI"/"KOSDAQ"/미상 시 빈 문자열이다. on_progress(processed, total)는
+        OHLCV 확보 단계에서 종목 단위로 호출된다(total=유니버스 크기). 순위 사전계산·평가
+        단계는 진행률 콜백 대상이 아니다 — 전체 소요시간의 대부분이 OHLCV fetch 단계에
+        있기 때문이다."""
         cond = self.get_condition(condition_id)
         if cond is None:
             raise ScreeningError(f"스크리닝 조건 '{condition_id}'을(를) 찾을 수 없습니다")
@@ -135,41 +178,71 @@ class ScreeningService:
             market=cond.universe.market,
         )
 
-        lookback_bars = estimate_required_lookback(
-            cond.root, factor_lookback_resolver=default_factor_lookback_resolver
-        )
-        start = as_of - timedelta(days=int(lookback_bars * _CALENDAR_DAY_MARGIN))
-        ohlcv_by_symbol = fetch_universe_ohlcv_cached(
-            self._db,
-            self._provider,
-            universe_symbols,
-            start=start,
-            end=as_of,
-            market=cond.universe.market,
-            on_progress=on_progress,
-        )
+        # 조건 트리가 RankPredicate로만 구성되면(예: "거래대금 Top100 AND 거래량 Top100")
+        # OHLCV 확보 자체가 불필요하다 — 생략하면 순위 조건이 무관한 OHLCV 결측/일시 조회
+        # 실패에 영향받지 않고(정확성), 대량 fetch도 피한다(성능). tree_requires_ohlcv 참고.
+        requires_ohlcv = tree_requires_ohlcv(cond.root)
+        ohlcv_by_symbol: dict[str, pd.DataFrame] = {}
+        if requires_ohlcv:
+            lookback_bars = estimate_required_lookback(
+                cond.root, factor_lookback_resolver=default_factor_lookback_resolver
+            )
+            start = _compute_lookback_start(self._provider, as_of, lookback_bars)
+            ohlcv_by_symbol = fetch_universe_ohlcv_cached(
+                self._db,
+                self._provider,
+                universe_symbols,
+                start=start,
+                end=as_of,
+                market=cond.universe.market,
+                on_progress=on_progress,
+            )
 
         passed: list[str] = []
+        eval_attempts = 0
+        eval_errors = 0
+        last_error: Exception | None = None
+        static_index = pd.DatetimeIndex([pd.Timestamp(as_of)])
         for symbol in universe_symbols:
-            raw = ohlcv_by_symbol.get(symbol)
-            if raw is None or raw.empty:
-                continue
-            try:
+            if requires_ohlcv:
+                raw = ohlcv_by_symbol.get(symbol)
+                if raw is None or raw.empty:
+                    continue
                 ohlcv = _prepare_symbol_ohlcv(raw)
+                index = ohlcv.index
+            else:
+                ohlcv = _EMPTY_OHLCV
+                index = static_index
+
+            eval_attempts += 1
+            try:
                 ctx = ScreeningEvaluationContext(
                     ohlcv=ohlcv,
-                    index=ohlcv.index,
+                    index=index,
                     rank_membership=rank_membership,
                     current_symbol=symbol,
                 )
                 result = _eval_screening_node(cond.root, ctx)
                 if bool(result.iloc[-1]):
                     passed.append(symbol)
-            except Exception:  # noqa: BLE001 — 종목 단위 격리(하나 실패해도 나머지 계속)
-                continue
+            except Exception as e:  # noqa: BLE001 — 종목 단위 격리(하나 실패해도 나머지 계속)
+                eval_errors += 1
+                last_error = e
+                logger.warning("종목 %s 스크리닝 평가 실패, 건너뜀: %s", symbol, e)
+
+        # 모든 평가 시도가 동일하게 실패했다면 종목별 데이터 이슈가 아니라 조건 정의/코드
+        # 오류일 가능성이 높다 — "정상적으로 0종목 통과"와 구분되도록 명시적으로 실패시킨다.
+        if eval_attempts > 0 and eval_errors == eval_attempts:
+            raise ScreeningError(
+                f"스크리닝 평가 중 시도한 {eval_attempts}개 종목이 모두 실패했습니다"
+                f"(조건 정의 오류 가능성) — 마지막 오류: {last_error}"
+            ) from last_error
 
         metadata = self._provider.fetch_metadata(passed)
-        return [(s, metadata.get(s, {}).get("name", "")) for s in passed]
+        return [
+            (s, metadata.get(s, {}).get("name", ""), metadata.get(s, {}).get("market", ""))
+            for s in passed
+        ]
 
 
 def _prepare_symbol_ohlcv(raw: pd.DataFrame) -> pd.DataFrame:
@@ -212,3 +285,5 @@ def _collect_validation_errors(
                 f"RankPredicate.column '{node.column}'은 시장 스냅샷 네이티브 컬럼이 아닙니다"
                 f"(허용: {sorted(_SNAPSHOT_COLUMNS)})"
             )
+        if node.factor_id not in known_factor_ids:
+            errors.append(f"미지의 팩터 id '{node.factor_id}'(RankPredicate 참조)")

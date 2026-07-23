@@ -137,6 +137,10 @@ def test_service_backtest_exposes_full_results_per_symbol(ohlcv, svc) -> None:
     assert isinstance(full_result.trades, pd.DataFrame)
     assert isinstance(full_result.equity_curve, pd.Series)
     assert not full_result.equity_curve.empty
+    # GUI 자산곡선에 주가를 겹쳐 보여주기 위한 종가 곡선 — equity_curve와 같은 인덱스.
+    assert isinstance(full_result.price, pd.Series)
+    assert not full_result.price.empty
+    assert list(full_result.price.index) == list(full_result.equity_curve.index)
     assert full_result.metrics == report.per_symbol["005930"]
 
 

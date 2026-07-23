@@ -116,7 +116,8 @@ def test_screening_run_returns_passed_symbols(tmp_path) -> None:
     assert isinstance(body["passed"], list)
     assert body["count"] == len(body["passed"])
     if body["passed"]:
-        assert set(body["passed"][0].keys()) == {"symbol", "name"}
+        assert set(body["passed"][0].keys()) == {"symbol", "name", "market"}
+        assert body["passed"][0]["market"] == "KOSPI"  # FixtureAdapter는 5종목 모두 KOSPI 고정
 
 
 def test_screening_run_unknown_id_returns_404(tmp_path) -> None:

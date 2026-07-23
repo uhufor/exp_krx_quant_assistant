@@ -28,7 +28,7 @@ import {
 import type { ScanUniverseJSON, ScreeningConditionJSON } from '../tree/screeningTypes'
 
 type ValidationResult = { ok: boolean; errors: string[] }
-type RunResultItem = { symbol: string; name: string }
+type RunResultItem = { symbol: string; name: string; market: string }
 type RunResult = {
   condition_id: string
   as_of: string
@@ -117,6 +117,7 @@ function RunResultTable({ result }: { result: RunResult }) {
             <Table.Tr>
               <Table.Th>종목코드</Table.Th>
               <Table.Th>종목명</Table.Th>
+              <Table.Th>시장</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -124,6 +125,7 @@ function RunResultTable({ result }: { result: RunResult }) {
               <Table.Tr key={row.symbol}>
                 <Table.Td>{row.symbol}</Table.Td>
                 <Table.Td>{row.name}</Table.Td>
+                <Table.Td>{row.market || '-'}</Table.Td>
               </Table.Tr>
             ))}
           </Table.Tbody>

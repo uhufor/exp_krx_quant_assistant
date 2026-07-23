@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Protocol
 
@@ -36,6 +36,9 @@ class BacktestResult:
     trades: pd.DataFrame         # 거래 기록
     equity_curve: pd.Series      # 자본 곡선
     run_id: str
+    # 종가(주가) 곡선 — GUI 자산곡선에 주가를 겹쳐 보여주기 위한 선택 필드(기본값 빈 Series).
+    # 기존 전략(quant/strategies/*.py)은 채우지 않아도 무방하다.
+    price: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
 
 
 class Strategy(Protocol):

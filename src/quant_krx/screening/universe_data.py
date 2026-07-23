@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import socket
+import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -26,6 +27,13 @@ _MAX_PARALLEL_FETCH_WORKERS = 8
 # 지정해 블로킹 소켓 호출이 일정 시간 후 반드시 예외를 던지도록 강제한다(각 fetch 함수의
 # 기존 try/except가 그 예외를 잡아 단위별로 격리하므로 스레드가 다음 작업을 계속 받는다).
 _SOCKET_TIMEOUT_SECONDS = 30.0
+
+# socket.setdefaulttimeout()은 프로세스 전역 상태다 — 스크리닝 실행 2건이 동시에 겹치면
+# 서로의 타임아웃 설정을 덮어쓰거나(먼저 끝난 쪽의 finally 복원이 아직 fetch 중인 다른
+# 실행의 보호를 제거) 무관한 다른 요청의 소켓에도 영향을 줄 수 있다. 전역 mutation
+# 구간 자체를 락으로 직렬화해 이를 막는다(현재 스크리닝은 저빈도 내부 도구 호출이라
+# 직렬화로 인한 처리량 손실은 무시할 만하다).
+_socket_timeout_lock = threading.Lock()
 
 
 def _existing_ohlcv_coverage(conn, symbols: list[str]) -> dict[str, tuple[date, date]]:
@@ -64,13 +72,18 @@ def _gap_ranges(
 
 
 def _with_socket_timeout(fn: Callable[[], None]) -> None:
-    """fn 실행 구간에만 socket 기본 타임아웃을 걸고 종료 후 원래 값으로 복원한다."""
-    previous = socket.getdefaulttimeout()
-    socket.setdefaulttimeout(_SOCKET_TIMEOUT_SECONDS)
-    try:
-        fn()
-    finally:
-        socket.setdefaulttimeout(previous)
+    """fn 실행 구간에만 socket 기본 타임아웃을 걸고 종료 후 원래 값으로 복원한다.
+
+    전역 mutation 구간을 _socket_timeout_lock으로 직렬화한다 — 동시 스크리닝 실행이
+    겹쳐도 서로의 타임아웃 설정을 덮어쓰지 않는다(모듈 상단 주석 참고).
+    """
+    with _socket_timeout_lock:
+        previous = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(_SOCKET_TIMEOUT_SECONDS)
+        try:
+            fn()
+        finally:
+            socket.setdefaulttimeout(previous)
 
 
 def _fetch_one_symbol(

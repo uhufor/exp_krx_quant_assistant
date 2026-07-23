@@ -127,6 +127,28 @@ export function defaultScreeningPredicate(factors: FactorOption[]): ScreeningPre
   }
 }
 
+/** AND/OR/NOT 전환 시 다음 operands를 결정한다 — 같은 composition 형태끼리(AND↔OR 등)
+ * 전환할 때 기존 하위 트리를 보존한다(버그 리포트 I5: 전환마다 재생성하면 조립해 둔
+ * 트리가 사라짐). NOT은 단항이라 첫 operand만 남기고, 2개 미만이면 AND/OR 최소
+ * 요건(2개)을 채우기 위해 default를 보충한다. */
+export function nextCompositionOperands(
+  newOp: 'AND' | 'OR' | 'NOT',
+  currentValue: ScreeningNodeJSON,
+  factors: FactorOption[],
+): ScreeningNodeJSON[] {
+  const existingOperands = currentValue.node === 'composition' ? currentValue.operands : null
+  if (newOp === 'NOT') {
+    return [existingOperands?.[0] ?? defaultScreeningPredicate(factors)]
+  }
+  if (existingOperands && existingOperands.length >= 2) {
+    return existingOperands
+  }
+  if (existingOperands && existingOperands.length === 1) {
+    return [existingOperands[0], defaultScreeningPredicate(factors)]
+  }
+  return [defaultScreeningPredicate(factors), defaultScreeningPredicate(factors)]
+}
+
 // market은 백엔드 ScanUniverse 기본값("KRX")을 그대로 쓴다 — KRX는 KOSPI+KOSDAQ 통합
 // 시장을 뜻하며(resolve_scan_universe가 provider.list_symbols(market="KRX")로 조회),
 // 표시용 라벨만 "KOSPI+KOSDAQ"로 보여준다(ScreeningTreeEditor 참고).

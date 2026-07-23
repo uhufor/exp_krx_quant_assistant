@@ -24,6 +24,7 @@ from quant_krx.screening.evaluation import (
     default_factor_lookback_resolver,
     estimate_required_lookback,
     extract_rank_predicates,
+    tree_requires_ohlcv,
 )
 from quant_krx.workspace import numeric as numeric_mod
 
@@ -276,3 +277,78 @@ def test_estimate_required_lookback_sums_window_over_inner() -> None:
         tree, factor_lookback_resolver=default_factor_lookback_resolver
     )
     assert result == 105
+
+
+def test_estimate_required_lookback_rank_predicate_is_zero() -> None:
+    """RankPredicate는 시장 스냅샷만 쓰고 시계열 이력이 전혀 필요 없다(I4 회귀)."""
+    node = RankPredicate(factor_id="trading_value", column="trading_value", top_n=10, rank_metric="desc")
+    assert (
+        estimate_required_lookback(node, factor_lookback_resolver=default_factor_lookback_resolver)
+        == 0
+    )
+
+
+def test_estimate_required_lookback_mixed_tree_ignores_rank_branch() -> None:
+    """RankPredicate와 Predicate가 섞인 트리는 Predicate 쪽 lookback만 반영된다."""
+    price_pred = Predicate(
+        left=FactorOperand(factor_id="sma", column="sma", params={"window": 20}),
+        operator=">",
+        right=ConstantOperand(value=0),
+    )
+    rank_pred = RankPredicate(factor_id="trading_value", column="trading_value", top_n=10, rank_metric="desc")
+    tree = Composition(op="AND", operands=(price_pred, rank_pred))
+    result = estimate_required_lookback(
+        tree, factor_lookback_resolver=default_factor_lookback_resolver
+    )
+    assert result == 25  # sma window(20) + margin(5), rank 분기(0)는 영향 없음
+
+
+# --- tree_requires_ohlcv ----------------------------------------------------------
+
+
+def test_tree_requires_ohlcv_false_for_pure_rank_predicate() -> None:
+    node = RankPredicate(factor_id="trading_value", column="trading_value", top_n=10, rank_metric="desc")
+    assert tree_requires_ohlcv(node) is False
+
+
+def test_tree_requires_ohlcv_true_for_plain_predicate() -> None:
+    node = Predicate(
+        left=FactorOperand(factor_id="price", column="close"),
+        operator=">",
+        right=ConstantOperand(value=0),
+    )
+    assert tree_requires_ohlcv(node) is True
+
+
+def test_tree_requires_ohlcv_composition_all_rank_is_false() -> None:
+    rank1 = RankPredicate(factor_id="trading_value", column="trading_value", top_n=100, rank_metric="desc")
+    rank2 = RankPredicate(factor_id="volume", column="volume", top_n=100, rank_metric="desc")
+    tree = Composition(op="AND", operands=(rank1, rank2))
+    assert tree_requires_ohlcv(tree) is False
+
+
+def test_tree_requires_ohlcv_composition_mixed_is_true() -> None:
+    rank = RankPredicate(factor_id="trading_value", column="trading_value", top_n=100, rank_metric="desc")
+    price = Predicate(
+        left=FactorOperand(factor_id="price", column="close"),
+        operator=">",
+        right=ConstantOperand(value=0),
+    )
+    tree = Composition(op="AND", operands=(rank, price))
+    assert tree_requires_ohlcv(tree) is True
+
+
+def test_tree_requires_ohlcv_window_predicate_wraps_rank_only_is_false() -> None:
+    rank = RankPredicate(factor_id="trading_value", column="trading_value", top_n=100, rank_metric="desc")
+    tree = WindowPredicate(inner=rank, n_bars=5, include_current_bar=True)
+    assert tree_requires_ohlcv(tree) is False
+
+
+def test_tree_requires_ohlcv_window_predicate_wraps_price_predicate_is_true() -> None:
+    price = Predicate(
+        left=FactorOperand(factor_id="price", column="close"),
+        operator=">",
+        right=ConstantOperand(value=0),
+    )
+    tree = WindowPredicate(inner=price, n_bars=5, include_current_bar=True)
+    assert tree_requires_ohlcv(tree) is True

@@ -37,7 +37,11 @@ type BacktestReport = {
   per_symbol: Record<string, Metrics>
   results: Record<
     string,
-    { equity_curve: Array<{ date: string; value: number }>; trades: Record<string, unknown>[] }
+    {
+      equity_curve: Array<{ date: string; value: number }>
+      price_curve: Array<{ date: string; value: number }>
+      trades: Record<string, unknown>[]
+    }
   >
   errors: Record<string, string>
 }
@@ -86,6 +90,57 @@ function tradeColumnLabel(key: string): string {
     TRADE_COLUMN_LABELS[key] ??
     key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
   )
+}
+
+// vectorbt 버전마다 컬럼명이 entry_timestamp/entry_date 등으로 다를 수 있어(위 주석 참고)
+// 자산 곡선 마커도 표와 동일하게 여러 후보 키 중 존재하는 값을 그대로 쓴다.
+const TRADE_ENTRY_DATE_KEYS = ['entry_timestamp', 'entry_date']
+const TRADE_EXIT_DATE_KEYS = ['exit_timestamp', 'exit_date']
+const TRADE_ID_KEYS = ['position_id', 'exit_trade_id', 'entry_trade_id']
+
+function pickTradeField(trade: Record<string, unknown>, keys: string[]): unknown {
+  for (const key of keys) {
+    if (trade[key] != null) return trade[key]
+  }
+  return undefined
+}
+
+type TradeMarker = { x: string; label: string; color: string }
+
+/** 자산 곡선(value)과 주가 곡선(price)을 날짜 기준으로 한 배열로 합친다 — 두 시계열은
+ * 같은 OHLCV 인덱스에서 나오므로 날짜 집합이 대개 일치하지만, 혹시 어긋나도 안전하게
+ * 합집합 날짜로 병합한다(값이 없는 쪽은 undefined -> 차트에서 해당 지점만 끊김). */
+function mergeCurves(
+  equityCurve: Array<{ date: string; value: number }>,
+  priceCurve: Array<{ date: string; value: number }>,
+): Array<{ date: string; value?: number; price?: number }> {
+  const valueByDate = new Map(equityCurve.map((p) => [p.date, p.value]))
+  const priceByDate = new Map(priceCurve.map((p) => [p.date, p.value]))
+  const dates = Array.from(new Set([...valueByDate.keys(), ...priceByDate.keys()])).sort()
+  return dates.map((date) => ({
+    date,
+    value: valueByDate.get(date),
+    price: priceByDate.get(date),
+  }))
+}
+
+/** 거래 내역(진입/청산)을 자산 곡선 위 세로 기준선으로 표시할 마커 목록을 만든다 —
+ * 라벨의 거래번호는 표의 "거래번호" 컬럼과 동일한 값을 쓴다(없으면 1부터 순번). */
+function buildTradeMarkers(trades: Record<string, unknown>[]): TradeMarker[] {
+  return trades.flatMap((trade, i) => {
+    const idRaw = pickTradeField(trade, TRADE_ID_KEYS)
+    const tradeNo = idRaw != null ? String(idRaw) : String(i + 1)
+    const entryDate = pickTradeField(trade, TRADE_ENTRY_DATE_KEYS)
+    const exitDate = pickTradeField(trade, TRADE_EXIT_DATE_KEYS)
+    const marks: TradeMarker[] = []
+    if (typeof entryDate === 'string') {
+      marks.push({ x: entryDate, label: `#${tradeNo} 진입`, color: 'teal' })
+    }
+    if (typeof exitDate === 'string') {
+      marks.push({ x: exitDate, label: `#${tradeNo} 청산`, color: 'red' })
+    }
+    return marks
+  })
 }
 
 const DIRECTION_LABELS: Record<string, string> = { long: '매수', short: '매도' }
@@ -170,6 +225,8 @@ export function BacktestPage() {
   const result = report && selectedSymbol ? report.results[selectedSymbol] : null
   const metrics = report && selectedSymbol ? report.per_symbol[selectedSymbol] : report?.metrics
   const tradeColumns = result && result.trades.length > 0 ? Object.keys(result.trades[0]) : []
+  const tradeMarkers = result ? buildTradeMarkers(result.trades) : []
+  const chartData = result ? mergeCurves(result.equity_curve, result.price_curve) : []
 
   return (
     <Stack gap="md">
@@ -267,17 +324,19 @@ export function BacktestPage() {
                 label="총비용"
                 value={fmtNum(metrics.fees_paid + metrics.slippage_cost)}
               />
-              {metrics.benchmark_return != null && (
-                <>
-                  <MetricStat label="벤치마크 수익률" value={pct(metrics.benchmark_return)} />
-                  <MetricStat
-                    label="초과수익률"
-                    value={pct(metrics.excess_return)}
-                    color={(metrics.excess_return ?? 0) >= 0 ? 'teal' : 'red'}
-                  />
-                </>
-              )}
+              <MetricStat label="벤치마크 수익률" value={pct(metrics.benchmark_return)} />
+              <MetricStat
+                label="초과수익률"
+                value={pct(metrics.excess_return)}
+                color={(metrics.excess_return ?? 0) >= 0 ? 'teal' : 'red'}
+              />
             </SimpleGrid>
+          )}
+
+          {metrics && metrics.benchmark_note && (
+            <Text size="xs" c="dimmed">
+              벤치마크 참고: {metrics.benchmark_note}
+            </Text>
           )}
 
           {result && result.equity_curve.length > 0 && (
@@ -287,14 +346,20 @@ export function BacktestPage() {
               </Title>
               <LineChart
                 h={280}
-                data={result.equity_curve}
+                data={chartData}
                 dataKey="date"
-                series={[{ name: 'value', label: '자산가치', color: 'blue.6' }]}
+                series={[
+                  { name: 'value', label: '자산가치', color: 'blue.6' },
+                  { name: 'price', label: '주가', color: 'grape.6', yAxisId: 'right' },
+                ]}
                 curveType="monotone"
                 withDots={false}
                 withLegend
                 gridAxis="xy"
                 valueFormatter={(value) => fmtNum(value)}
+                referenceLines={tradeMarkers}
+                withRightYAxis
+                rightYAxisLabel="주가"
               />
             </Paper>
           )}

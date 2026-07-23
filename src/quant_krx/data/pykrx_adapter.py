@@ -31,6 +31,12 @@ def _resolve_trading_day(s, date_str: str) -> str:
 class PyKrxAdapter:
     """PyKrx 기반 KRX 데이터 제공자."""
 
+    def __init__(self) -> None:
+        # list_symbols()가 이미 조회한 KOSPI/KOSDAQ 소속 정보를 재사용하기 위한
+        # 인스턴스 캐시(fetch_metadata 참고) — 매 요청마다 새 인스턴스가 만들어지므로
+        # (api/deps.py::get_data_provider) 요청 하나 안에서만 유효하면 충분하다.
+        self._market_cache: dict[str, str] = {}
+
     @property
     def source_name(self) -> str:
         return "PyKrx"
@@ -40,10 +46,17 @@ class PyKrxAdapter:
             s = _krx_stock()
             today_str = _resolve_trading_day(s, date.today().strftime("%Y%m%d"))
             if market in ("KOSPI", "KRX"):
-                tickers = s.get_market_ticker_list(today_str, market="KOSPI")
-                tickers += s.get_market_ticker_list(today_str, market="KOSDAQ")
+                kospi = s.get_market_ticker_list(today_str, market="KOSPI")
+                kosdaq = s.get_market_ticker_list(today_str, market="KOSDAQ")
+                for t in kospi:
+                    self._market_cache[t.zfill(6)] = "KOSPI"
+                for t in kosdaq:
+                    self._market_cache[t.zfill(6)] = "KOSDAQ"
+                tickers = kospi + kosdaq
             else:
                 tickers = s.get_market_ticker_list(today_str, market=market)
+                for t in tickers:
+                    self._market_cache[t.zfill(6)] = market
             return [t.zfill(6) for t in tickers]
         except Exception:
             return []
@@ -122,15 +135,42 @@ class PyKrxAdapter:
         return self._normalize_bulk_ohlcv(df, date)
 
     def fetch_metadata(self, symbols: list[str]) -> dict[str, dict]:
+        s = _krx_stock()
+        market_by_symbol = self._market_membership(s, symbols)
         result = {}
         for sym in symbols:
             try:
-                s = _krx_stock()
                 name = s.get_market_ticker_name(sym)
-                result[sym] = {"symbol": sym, "name": name, "source": self.source_name}
+                result[sym] = {
+                    "symbol": sym,
+                    "name": name,
+                    "source": self.source_name,
+                    "market": market_by_symbol.get(sym, ""),
+                }
             except Exception:
-                result[sym] = {"symbol": sym}
+                result[sym] = {"symbol": sym, "market": market_by_symbol.get(sym, "")}
         return result
+
+    def _market_membership(self, s, symbols: list[str]) -> dict[str, str]:
+        """symbol→KOSPI/KOSDAQ 매핑을 반환한다.
+
+        list_symbols()가 이미 같은 인스턴스에서 호출됐다면(스크리닝 run()의 통상 경로 —
+        universe 해석 시 list_symbols 호출 후 마지막에 fetch_metadata 호출) 그 결과를
+        그대로 재사용해 네트워크 호출을 추가하지 않는다. 요청 대상 symbols 중 캐시에
+        없는 종목이 하나라도 있으면(예: fetch_metadata를 list_symbols 없이 단독 호출한
+        경우) 그때만 KOSPI/KOSDAQ 목록을 새로 조회한다 — 매번 추가 호출을 만들면 그만큼
+        간헐적 KRX 세션 실패에 노출되는 지점이 늘어난다."""
+        if all(sym in self._market_cache for sym in symbols):
+            return self._market_cache
+        today_str = _resolve_trading_day(s, date.today().strftime("%Y%m%d"))
+        for market in ("KOSPI", "KOSDAQ"):
+            try:
+                tickers = s.get_market_ticker_list(today_str, market=market)
+            except Exception:
+                continue
+            for t in tickers:
+                self._market_cache[t.zfill(6)] = market
+        return self._market_cache
 
     def _normalize(self, df: pd.DataFrame, symbol: str) -> pd.DataFrame:
         df = df.copy()
