@@ -164,6 +164,77 @@ def _ohlcv_provider_for(data_source: str) -> DataProvider:
     raise ValueError(f"알 수 없는 data_source '{data_source}'(허용: {DATA_SOURCES})")
 
 
+def _fetch_or_warn(
+    db: Database,
+    symbols: list[str],
+    make_provider: Callable[[], FundamentalProvider],
+    kinds: frozenset[str],
+    *,
+    start: date,
+    end: date,
+    on_warning: Callable[[str, Exception], None] | None,
+    label: str,
+) -> None:
+    """provider 생성·수집 중 실패해도(예: DART_API_KEY 미설정) 다른 kind나 OHLCV 기반
+    팩터 계산을 막지 않는다 — 실패분은 NaN으로 자연 degrade한다(기존 결측 처리 원칙과 동일)."""
+    if not kinds:
+        return
+    provider: FundamentalProvider | None = None
+    try:
+        provider = make_provider()
+        fetch_and_upsert_fundamentals(
+            db, symbols, provider, start=start, end=end, as_of=date.today(), kinds=kinds,
+        )
+    except Exception as e:  # noqa: BLE001 — 펀더멘털 수집 실패는 백테스트 자체를 막지 않음
+        if on_warning is not None:
+            on_warning(label, e)
+    finally:
+        close = getattr(provider, "close", None)
+        if callable(close):
+            close()
+
+
+def _fetch_fundamentals_for_backtest(
+    db: Database,
+    symbols: list[str],
+    required_kinds: frozenset[str],
+    *,
+    data_source: str,
+    start: date,
+    end: date,
+    on_warning: Callable[[str, Exception], None] | None,
+) -> None:
+    """valuation은 PyKrx, financials는 DART가 각각 전담한다 — 단일 provider가 둘 다 지원하지
+    않으므로(`PyKrxFundamentalAdapter.fetch_financials`/`DartFundamentalAdapter.fetch_valuation`
+    모두 `NotImplementedError`) kind별로 분리 수집하며, 한쪽 실패가 다른 kind를 막지 않는다.
+    """
+    if data_source == "fixture":
+        from quant_krx.data.fixture_fundamental import FixtureFundamentalAdapter
+
+        _fetch_or_warn(
+            db, symbols, FixtureFundamentalAdapter,
+            required_kinds & {"valuation", "financials"},
+            start=start, end=end, on_warning=on_warning, label="fixture",
+        )
+        return
+
+    if "valuation" in required_kinds:
+        from quant_krx.data.pykrx_fundamental import PyKrxFundamentalAdapter
+
+        _fetch_or_warn(
+            db, symbols, PyKrxFundamentalAdapter, frozenset({"valuation"}),
+            start=start, end=end, on_warning=on_warning, label="valuation(pykrx)",
+        )
+
+    if "financials" in required_kinds:
+        from quant_krx.data.dart_fundamental import DartFundamentalAdapter
+
+        _fetch_or_warn(
+            db, symbols, DartFundamentalAdapter, frozenset({"financials"}),
+            start=start, end=end, on_warning=on_warning, label="financials(dart)",
+        )
+
+
 def prepare_backtest_data(
     db: Database,
     defn: StrategyDefinition,
@@ -177,6 +248,7 @@ def prepare_backtest_data(
     resolve_formula: FormulaResolver,
     on_benchmark_warning: Callable[[str, Exception], None] | None = None,
     on_symbol_error: Callable[[str, Exception], None] | None = None,
+    on_fundamental_warning: Callable[[str, Exception], None] | None = None,
 ) -> tuple[dict[str, FactorInput], pd.DataFrame | None]:
     """`strategy-backtest` CLI(FR-11/12 경로)와 GUI API가 공유하는 백테스트 입력 조립.
 
@@ -195,17 +267,10 @@ def prepare_backtest_data(
 
     required_kinds = strategy_required_data(defn, resolve_rule, resolve_formula)
     if required_kinds & {"valuation", "financials"}:
-        if data_source == "fixture":
-            from quant_krx.data.fixture_fundamental import FixtureFundamentalAdapter
-
-            fundamental_provider: FundamentalProvider = FixtureFundamentalAdapter()
-        else:
-            from quant_krx.data.pykrx_fundamental import PyKrxFundamentalAdapter
-
-            fundamental_provider = PyKrxFundamentalAdapter()
-        fetch_and_upsert_fundamentals(
-            db, symbols, fundamental_provider,
-            start=start, end=end, as_of=date.today(), kinds=required_kinds,
+        _fetch_fundamentals_for_backtest(
+            db, symbols, required_kinds,
+            data_source=data_source, start=start, end=end,
+            on_warning=on_fundamental_warning,
         )
 
     data: dict[str, FactorInput] = {}

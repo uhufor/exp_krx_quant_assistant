@@ -1149,6 +1149,7 @@ dependencies = [
     { name = "duckdb" },
     { name = "fastapi" },
     { name = "finance-datareader" },
+    { name = "httpx" },
     { name = "numpy" },
     { name = "pandas" },
     { name = "pyarrow" },
@@ -1167,7 +1168,6 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -1193,7 +1193,7 @@ requires-dist = [
     { name = "duckdb", specifier = ">=1.2.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "finance-datareader", specifier = ">=0.9.50" },
-    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13.0" },
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "pandas", specifier = ">=2.2.0" },

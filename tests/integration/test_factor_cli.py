@@ -37,11 +37,20 @@ def test_show_factor_valid_id(monkeypatch, tmp_path):
     assert "fast" in result.stdout
 
 
-def test_show_factor_financial_factor_shows_dart_hint(monkeypatch, tmp_path):
+def test_show_factor_financial_factor_shows_dart_hint_when_unset(monkeypatch, tmp_path):
     monkeypatch.setenv("DUCKDB_PATH", str(tmp_path / "test.duckdb"))
+    monkeypatch.delenv("DART_API_KEY", raising=False)
     result = runner.invoke(app, ["show-factor", "roa"])
     assert result.exit_code == 0
     assert "DART" in result.stdout
+
+
+def test_show_factor_financial_factor_hides_dart_hint_when_configured(monkeypatch, tmp_path):
+    monkeypatch.setenv("DUCKDB_PATH", str(tmp_path / "test.duckdb"))
+    monkeypatch.setenv("DART_API_KEY", "dummy")
+    result = runner.invoke(app, ["show-factor", "roa"])
+    assert result.exit_code == 0
+    assert "DART" not in result.stdout
 
 
 def test_show_factor_unknown_id_exits_nonzero(monkeypatch, tmp_path):

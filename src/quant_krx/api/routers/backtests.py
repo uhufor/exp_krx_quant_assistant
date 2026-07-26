@@ -69,12 +69,16 @@ def run_backtest(
         data_errors[sym] = str(exc)
         logger.warning("종목 '%s' 데이터 조립 실패(건너뛰고 계속): %s", sym, exc)
 
+    def _warn_fundamental_failure(label: str, exc: Exception) -> None:
+        logger.warning("펀더멘털 수집 실패(%s, 건너뛰고 계속): %s", label, exc)
+
     data, benchmark_df = prepare_backtest_data(
         db, defn, sym_list,
         data_source=body.data_source, start=start_date, end=end_date, benchmark=body.benchmark,
         resolve_rule=svc.get_rule, resolve_formula=svc.get_formula,
         on_benchmark_warning=_warn_benchmark_failure,
         on_symbol_error=_warn_symbol_failure,
+        on_fundamental_warning=_warn_fundamental_failure,
     )
     if not data:
         detail = "; ".join(f"{s}: {m}" for s, m in data_errors.items())

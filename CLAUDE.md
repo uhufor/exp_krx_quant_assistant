@@ -50,7 +50,7 @@ watchlist → fetch_ohlcv → validate → VectorBT backtest → Signal → Repo
 | `Strategy` | `quant/base.py` | `MACrossoverStrategy`, `RSIBreakoutStrategy` |
 | `LLMProvider` | `llm/base.py` | `AnthropicProvider`, `OpenAICompatibleProvider`, `MockProvider` |
 | `Factor` | `factors/base.py` | 32종 (가격·기술 7 + 밸류에이션 11 + 재무제표 14, `factors/catalog/`) |
-| `FundamentalProvider` | `data/fundamental_base.py` | `PyKrxFundamentalAdapter`(밸류에이션), `DartFundamentalAdapter`(재무제표, Deferred), `FixtureFundamentalAdapter`(테스트) |
+| `FundamentalProvider` | `data/fundamental_base.py` | `PyKrxFundamentalAdapter`(밸류에이션), `DartFundamentalAdapter`(재무제표, DART Open API), `FixtureFundamentalAdapter`(테스트) |
 
 ### 팩터 플랫폼 (factors/, data/ — refined_epics/*-R01-FACTOR_PLATFORM.md)
 
@@ -103,6 +103,8 @@ Pydantic Settings, `.env` 자동 로드. 네스티드 설정:
 **PyKrx lazy import**: `pykrx`는 `pkg_resources` 모듈 레벨 임포트 시 setuptools 82와 충돌(`pkg_resources`는 setuptools 82부터 제거됨) → `setuptools>=70,<82`로 캡핑. `pykrx_adapter.py`/`pykrx_fundamental.py`는 `_krx_stock()` 내부에서 lazy import(단, 이 자체가 setuptools 충돌을 막지는 않음 — 캡핑이 실제 해결책).
 
 **PyKrx KRX 로그인**: `pykrx>=1.2.8`부터 `data.krx.co.kr` 밸류에이션/시가총액 엔드포인트(`get_market_fundamental_by_date`, `get_market_cap_by_date`)가 로그인 세션을 요구한다(OHLCV는 비로그인도 동작). 환경변수 `KRX_ID`/`KRX_PW`(`.env`)가 필요하며, pykrx가 `os.getenv()`로 직접 읽으므로 `__main__.py`의 `load_dotenv()` 호출이 선행되어야 `.env` 값이 적용된다. 미설정/만료 시 `PyKrxFundamentalAdapter.fetch_valuation`이 명확한 `RuntimeError`로 실패한다.
+
+**DART 재무제표 연동** (`roadmap/EPIC_R01/TRD-R01-D-DART_FINANCIALS.md`): `DartFundamentalAdapter.fetch_financials`는 opendart.fss.or.kr Open API로 재무제표 14계정을 실수집한다. 환경변수 `DART_API_KEY`(`.env`)가 필요하며 DART도 `os.getenv()`로 직접 읽는다(KRX_ID/PW와 동일 관례). 종목코드→`corp_code` 매핑은 `data/dart_corp_code.py`(`corpCode.xml` 로컬 캐시, 7일 경과 시 재다운로드), 계정 매핑은 `data/dart_account_mapping.py`(account_id 우선, account_nm 폴백)가 담당한다. 연결(CFS) 우선 → 별도(OFS) 폴백. `invested_capital`은 DART 원천 태그가 없는 파생 컬럼으로 `total_assets`를 그대로 대입한다. `fetch_valuation`은 DART가 제공하지 않는 시장 데이터라 `NotImplementedError` 유지(PyKrxFundamentalAdapter 사용).
 
 **Report A vs B**: 동일 `signal.id`를 참조해야 함. Report A = LLM 없음, 결정론적. Report B = LLM 보조, 동일 신호 기반.
 
