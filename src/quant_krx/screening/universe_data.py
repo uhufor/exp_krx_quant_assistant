@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 # 버리게 되어("Connection pool is full" 경고) 대상 서버에 부하가 몰리기 쉽다.
 _MAX_PARALLEL_FETCH_WORKERS = 8
 
-# pykrx/FinanceDataReader의 내부 requests 호출은 timeout을 지정하지 않는다(각 라이브러리
-# 소스에서 확인됨) — 서버가 응답을 주지 않으면 해당 워커 스레드가 영원히 블록되고,
+# pykrx의 내부 requests 호출은 timeout을 지정하지 않는다(라이브러리 소스에서 확인됨) —
+# 서버가 응답을 주지 않으면 해당 워커 스레드가 영원히 블록되고,
 # 이런 스레드가 누적되면 스레드풀 전체가 멈춘다. socket 기본 타임아웃을 fetch 구간에서만
 # 지정해 블로킹 소켓 호출이 일정 시간 후 반드시 예외를 던지도록 강제한다(각 fetch 함수의
 # 기존 try/except가 그 예외를 잡아 단위별로 격리하므로 스레드가 다음 작업을 계속 받는다).

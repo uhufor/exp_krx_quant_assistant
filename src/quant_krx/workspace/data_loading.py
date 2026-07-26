@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from datetime import date, datetime, timedelta
+from collections.abc import Callable, Mapping
+from datetime import date, datetime
 
 import pandas as pd
 
 from quant_krx.data.base import DataProvider
+from quant_krx.data.coverage import (
+    date_range_gaps,
+    existing_financials_periods,
+    existing_valuation_coverage,
+)
 from quant_krx.data.fundamental_base import FundamentalProvider
 from quant_krx.data.loader import load_factor_input
 from quant_krx.data.upsert import upsert_fundamental
@@ -15,7 +20,7 @@ from quant_krx.strategy.definition import StrategyDefinition
 from quant_krx.workspace.errors import EmptyOhlcvError
 from quant_krx.workspace.evaluation import FormulaResolver, RuleResolver, strategy_required_data
 
-DATA_SOURCES = ("fixture", "fdr", "pykrx")
+DATA_SOURCES = ("fixture", "krx_dart")
 
 
 def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
@@ -23,42 +28,6 @@ def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
     result.index = pd.to_datetime(result.index)
     result = result.sort_index()
     return result[["open", "high", "low", "close", "volume"]].astype(float)
-
-
-def _existing_valuation_coverage(
-    conn, symbols: list[str]
-) -> dict[str, tuple[date, date]]:
-    """symbol별 fundamental_daily 기존 커버리지(min/max date)를 조회한다."""
-    if not symbols:
-        return {}
-    df = conn.execute(
-        "SELECT symbol, MIN(date) AS min_date, MAX(date) AS max_date "
-        "FROM fundamental_daily WHERE symbol = ANY(?) GROUP BY symbol",
-        [symbols],
-    ).df()
-    return {
-        row["symbol"]: (pd.Timestamp(row["min_date"]).date(), pd.Timestamp(row["max_date"]).date())
-        for _, row in df.iterrows()
-    }
-
-
-def _gap_ranges(
-    existing: tuple[date, date] | None, start: date, end: date
-) -> list[tuple[date, date]]:
-    """요청 구간[start, end] 중 기존 커버리지 밖(이전/이후)만 반환한다.
-
-    기존 구간 내부(거래 캘린더상 자연스러운 결측 제외)는 재수집하지 않는다 — 이미 있는
-    데이터는 건드리지 않고, 경계 바깥의 부족분만 최소로 채운다.
-    """
-    if existing is None:
-        return [(start, end)]
-    existing_min, existing_max = existing
-    gaps: list[tuple[date, date]] = []
-    if start < existing_min:
-        gaps.append((start, min(existing_min - timedelta(days=1), end)))
-    if end > existing_max:
-        gaps.append((max(existing_max + timedelta(days=1), start), end))
-    return gaps
 
 
 def fetch_and_upsert_fundamentals(
@@ -70,6 +39,7 @@ def fetch_and_upsert_fundamentals(
     end: date,
     as_of: date,
     kinds: frozenset[str],
+    financials_kwargs: Mapping[str, object] | None = None,
 ) -> None:
     """required_data에 valuation/financials가 있을 때만 호출한다(AC-04 — ohlcv-only는 호출 0회).
 
@@ -79,22 +49,23 @@ def fetch_and_upsert_fundamentals(
     valuation은 symbol별 기존 fundamental_daily 커버리지를 조회해, 요청 구간 중 이미
     확보된 부분은 건너뛰고 경계 바깥(이전/이후)만 증분 수집한다(라이브 provider 호출
     최소화 — PyKrx처럼 재로그인·개인 자격증명이 필요한 provider에서 중요).
-    financials는 PK가 날짜 축이 아니므로(fiscal_year/quarter) 기존 방식(전체 재수집)을
-    유지한다.
+    financials는 `financials_kwargs`(예: `{"skip_periods": {...}}`)를 provider 호출에
+    그대로 전달한다 — 기본값 None이면 기존과 동일하게 아무 추가 인자 없이 호출되므로
+    이 키워드를 모르는 provider(Fixture/PyKrx)는 영향받지 않는다(TRD-R04 §1).
     """
     with db.cursor() as conn:
         if "valuation" in kinds:
-            coverage = _existing_valuation_coverage(conn, symbols)
+            coverage = existing_valuation_coverage(conn, symbols)
             grouped: dict[tuple[date, date], list[str]] = {}
             for symbol in symbols:
-                for gap in _gap_ranges(coverage.get(symbol), start, end):
+                for gap in date_range_gaps(coverage.get(symbol), start, end):
                     grouped.setdefault(gap, []).append(symbol)
             for (gap_start, gap_end), gap_symbols in grouped.items():
                 frame = provider.fetch_valuation(gap_symbols, gap_start, gap_end)
                 frame = frame.assign(source=provider.source_name, fetched_at=datetime.utcnow())
                 upsert_fundamental(conn, "fundamental_daily", frame, as_of=as_of)
         if "financials" in kinds:
-            frame = provider.fetch_financials(symbols, start, end)
+            frame = provider.fetch_financials(symbols, start, end, **(financials_kwargs or {}))
             frame = frame.assign(source=provider.source_name, fetched_at=datetime.utcnow())
             upsert_fundamental(conn, "financial_statements", frame, as_of=as_of)
 
@@ -153,11 +124,7 @@ def _ohlcv_provider_for(data_source: str) -> DataProvider:
         from quant_krx.data.fixture_adapter import FixtureAdapter
 
         return FixtureAdapter()
-    if data_source == "fdr":
-        from quant_krx.data.fdr_adapter import FDRAdapter
-
-        return FDRAdapter()
-    if data_source == "pykrx":
+    if data_source == "krx_dart":
         from quant_krx.data.pykrx_adapter import PyKrxAdapter
 
         return PyKrxAdapter()
@@ -174,6 +141,7 @@ def _fetch_or_warn(
     end: date,
     on_warning: Callable[[str, Exception], None] | None,
     label: str,
+    financials_kwargs: Mapping[str, object] | None = None,
 ) -> None:
     """provider 생성·수집 중 실패해도(예: DART_API_KEY 미설정) 다른 kind나 OHLCV 기반
     팩터 계산을 막지 않는다 — 실패분은 NaN으로 자연 degrade한다(기존 결측 처리 원칙과 동일)."""
@@ -184,6 +152,7 @@ def _fetch_or_warn(
         provider = make_provider()
         fetch_and_upsert_fundamentals(
             db, symbols, provider, start=start, end=end, as_of=date.today(), kinds=kinds,
+            financials_kwargs=financials_kwargs,
         )
     except Exception as e:  # noqa: BLE001 — 펀더멘털 수집 실패는 백테스트 자체를 막지 않음
         if on_warning is not None:
@@ -229,9 +198,13 @@ def _fetch_fundamentals_for_backtest(
     if "financials" in required_kinds:
         from quant_krx.data.dart_fundamental import DartFundamentalAdapter
 
+        with db.cursor() as conn:
+            skip_periods = existing_financials_periods(conn, symbols)
+
         _fetch_or_warn(
             db, symbols, DartFundamentalAdapter, frozenset({"financials"}),
             start=start, end=end, on_warning=on_warning, label="financials(dart)",
+            financials_kwargs={"skip_periods": skip_periods} if skip_periods else None,
         )
 
 

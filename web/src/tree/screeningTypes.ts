@@ -44,9 +44,23 @@ export type ScreeningWindowPredicateJSON = {
 }
 
 // ranking.py::_SNAPSHOT_COLUMNS — RankPredicate.column은 이 3종 시장 스냅샷 네이티브
-// 컬럼만 허용된다(factor의 output 컬럼이 아님, 백엔드 검증과 동일 제약).
+// 컬럼만 허용된다(factor의 output 컬럼이 아님, 백엔드 검증과 동일 제약). factor_id는
+// 실제 계산에 전혀 쓰이지 않는 표시용 라벨일 뿐이라(ranking.py가 column만 읽음) 편집기에서
+// column과 동일한 고정 3종 중 하나로만 채운다(임의 팩터 선택 UI 제공 금지 — 오도 방지).
 export const SCREENING_RANK_COLUMNS = ['close', 'volume', 'trading_value'] as const
 export const SCREENING_RANK_METRICS = ['asc', 'desc'] as const
+export const SCREENING_RANK_COLUMN_LABELS: Record<(typeof SCREENING_RANK_COLUMNS)[number], string> = {
+  close: '종가',
+  volume: '거래량',
+  trading_value: '거래대금',
+}
+// RankPredicate.factor_id는 계산에 쓰이지 않는 표시용 필드지만 카탈로그에 등록된 값이어야
+// 하므로(service.py 검증), column 선택에 맞춰 화면에 노출하지 않고 자동으로 채운다.
+export const SCREENING_RANK_COLUMN_TO_FACTOR_ID: Record<(typeof SCREENING_RANK_COLUMNS)[number], string> = {
+  close: 'price',
+  volume: 'volume',
+  trading_value: 'trading_value',
+}
 
 export type ScreeningRankPredicateJSON = {
   node: 'rank_predicate'
@@ -57,11 +71,44 @@ export type ScreeningRankPredicateJSON = {
   params: Record<string, number>
 }
 
+// screening/definition.py::FactorRankPredicate — 재무제표/밸류에이션 팩터(required_data가
+// ohlcv를 포함하지 않는 팩터)로 횡단면 순위를 매기는 신규 노드(TRD-R04 §4). RankPredicate와
+// 필드 형상은 같지만 node 태그·평가 경로가 달라 별개 타입이다.
+export type ScreeningFactorRankPredicateJSON = {
+  node: 'factor_rank_predicate'
+  factor_id: string
+  column: string
+  rank_metric: (typeof SCREENING_RANK_METRICS)[number]
+  top_n: number
+  params: Record<string, number>
+}
+
 export type ScreeningNodeJSON =
   | ScreeningPredicateJSON
   | ScreeningCompositionJSON
   | ScreeningWindowPredicateJSON
   | ScreeningRankPredicateJSON
+  | ScreeningFactorRankPredicateJSON
+
+// FactorRankPredicate 편집기의 팩터 드롭다운은 OHLCV가 필요한 팩터(가격·기술)를 제외한다
+// (백엔드 service.py::_collect_validation_errors와 동일 제약 — 선택 가능해 보이지만
+// 저장 시 항상 실패하는 UI 금지).
+export function factorRankEligibleFactors(factors: FactorOption[]): FactorOption[] {
+  return factors.filter((f) => !f.required_data.includes('ohlcv'))
+}
+
+export function defaultFactorRankPredicate(factors: FactorOption[]): ScreeningFactorRankPredicateJSON {
+  const eligible = factorRankEligibleFactors(factors)
+  const first = eligible[0]
+  return {
+    node: 'factor_rank_predicate',
+    factor_id: first?.id ?? '',
+    column: first?.output[0] ?? '',
+    rank_metric: 'desc',
+    top_n: 10,
+    params: {},
+  }
+}
 
 // universe.py::_SUPPORTED_FILTERS — 4종은 실제로 걸러지는 활성 필터(토글 가능).
 export const SCREENING_SUPPORTED_FILTERS = ['etf', 'etn', 'preferred', 'spac'] as const

@@ -5,6 +5,7 @@ from typing import Any
 
 from quant_krx.screening.definition import (
     Composition,
+    FactorRankPredicate,
     Node,
     Predicate,
     RankPredicate,
@@ -16,12 +17,14 @@ _NODE_DISPATCH: dict[str, type] = {
     "predicate": Predicate,
     "window_predicate": WindowPredicate,
     "rank_predicate": RankPredicate,
+    "factor_rank_predicate": FactorRankPredicate,
     "composition": Composition,
 }
 
 
 def node_from_dict(d: Mapping[str, Any]) -> Node:
-    """screening 전용 노드 디스패치 — predicate/window_predicate/rank_predicate/composition 4종.
+    """screening 전용 노드 디스패치 —
+    predicate/window_predicate/rank_predicate/factor_rank_predicate/composition 5종.
 
     rule.definition.node_from_dict는 window/rank 태그를 모르므로 재사용 불가(독립 디스패치, INV-2).
     """

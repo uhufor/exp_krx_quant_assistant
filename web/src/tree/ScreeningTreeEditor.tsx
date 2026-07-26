@@ -13,13 +13,18 @@ import {
 import { IconPlus, IconX } from '@tabler/icons-react'
 import {
   SCREENING_PREDICATE_OPS,
+  SCREENING_RANK_COLUMN_LABELS,
+  SCREENING_RANK_COLUMN_TO_FACTOR_ID,
   SCREENING_RANK_COLUMNS,
   SCREENING_RANK_METRICS,
+  defaultFactorRankPredicate,
   defaultScreeningPredicate,
+  factorRankEligibleFactors,
   nextCompositionOperands,
 } from './screeningTypes'
 import type {
   ScreeningCompositionJSON,
+  ScreeningFactorRankPredicateJSON,
   ScreeningNodeJSON,
   ScreeningOperandJSON,
   ScreeningPredicateJSON,
@@ -41,7 +46,8 @@ const NODE_TYPE_DATA = [
   { value: 'OR', label: 'OR(하나 이상 만족)' },
   { value: 'NOT', label: 'NOT(반전)' },
   { value: 'window_predicate', label: '기간 조건(최근 N봉 이내)' },
-  { value: 'rank_predicate', label: '순위 조건(Top-N)' },
+  { value: 'rank_predicate', label: '순위 조건(Top-N, 거래대금/거래량/종가)' },
+  { value: 'factor_rank_predicate', label: '팩터 순위 조건(재무/밸류에이션)' },
 ]
 
 const DEPTH_COLORS = ['indigo', 'pink', 'cyan', 'lime'] as const
@@ -76,15 +82,16 @@ export function ScreeningTreeEditor({
         include_current_bar: true,
       })
     } else if (newType === 'rank_predicate') {
-      const first = factors[0]
       onChange({
         node: 'rank_predicate',
-        factor_id: first?.id ?? 'trading_value',
+        factor_id: SCREENING_RANK_COLUMN_TO_FACTOR_ID.trading_value,
         column: 'trading_value',
         rank_metric: 'desc',
         top_n: 10,
         params: {},
       })
+    } else if (newType === 'factor_rank_predicate') {
+      onChange(defaultFactorRankPredicate(factors))
     }
   }
 
@@ -122,7 +129,11 @@ export function ScreeningTreeEditor({
         )}
 
         {value.node === 'rank_predicate' && (
-          <ScreeningRankPredicateEditor value={value} onChange={onChange} factors={factors} />
+          <ScreeningRankPredicateEditor value={value} onChange={onChange} />
+        )}
+
+        {value.node === 'factor_rank_predicate' && (
+          <ScreeningFactorRankPredicateEditor value={value} onChange={onChange} factors={factors} />
         )}
       </Stack>
     </Paper>
@@ -362,33 +373,24 @@ function ScreeningWindowPredicateEditor({
 function ScreeningRankPredicateEditor({
   value,
   onChange,
-  factors,
 }: {
   value: ScreeningRankPredicateJSON
   onChange: (v: ScreeningNodeJSON) => void
-  factors: FactorOption[]
 }) {
   return (
     <Stack gap="xs">
       <Group gap="xs" align="flex-end" wrap="wrap">
         <Select
-          label="factor_id(참조용, lookback 추정에만 사용)"
-          data={factors.map((f) => ({ value: f.id, label: `${f.display_name}(${f.id})` }))}
-          value={value.factor_id || null}
-          onChange={(id) => onChange({ ...value, factor_id: id ?? value.factor_id })}
-          searchable
-          w={220}
-        />
-        <Select
-          label="column(시장 스냅샷 컬럼)"
-          data={[...SCREENING_RANK_COLUMNS]}
+          label="기준"
+          data={SCREENING_RANK_COLUMNS.map((col) => ({
+            value: col,
+            label: SCREENING_RANK_COLUMN_LABELS[col],
+          }))}
           value={value.column}
-          onChange={(col) =>
-            onChange({
-              ...value,
-              column: (col ?? value.column) as ScreeningRankPredicateJSON['column'],
-            })
-          }
+          onChange={(col) => {
+            const column = (col ?? value.column) as ScreeningRankPredicateJSON['column']
+            onChange({ ...value, column, factor_id: SCREENING_RANK_COLUMN_TO_FACTOR_ID[column] })
+          }}
           w={160}
         />
         <Select
@@ -414,9 +416,85 @@ function ScreeningRankPredicateEditor({
           w={100}
         />
       </Group>
-      <Tooltip label="column은 팩터 근사치가 아니라 시장 스냅샷(close/volume/trading_value)에서 직접 계산됩니다.">
+      <Text size="xs" c="dimmed">
+        시장 전체(거래대금/거래량/종가) 기준 상위 top_n 종목만 통과하는 횡단면 순위 조건입니다.
+      </Text>
+    </Stack>
+  )
+}
+
+function ScreeningFactorRankPredicateEditor({
+  value,
+  onChange,
+  factors,
+}: {
+  value: ScreeningFactorRankPredicateJSON
+  onChange: (v: ScreeningNodeJSON) => void
+  factors: FactorOption[]
+}) {
+  const eligible = factorRankEligibleFactors(factors)
+  const selected = eligible.find((f) => f.id === value.factor_id)
+
+  return (
+    <Stack gap="xs">
+      <Group gap="xs" align="flex-end" wrap="wrap">
+        <Select
+          label="팩터(재무제표/밸류에이션)"
+          data={eligible.map((f) => ({ value: f.id, label: `${f.display_name}(${f.id})` }))}
+          value={value.factor_id || null}
+          onChange={(id) => {
+            const f = eligible.find((ff) => ff.id === id)
+            onChange({ ...value, factor_id: id ?? value.factor_id, column: f?.output[0] ?? value.column, params: {} })
+          }}
+          searchable
+          w={220}
+        />
+        <Select
+          label="컬럼"
+          data={selected?.output ?? [value.column]}
+          value={value.column}
+          onChange={(col) => onChange({ ...value, column: col ?? value.column })}
+          w={140}
+        />
+        {selected?.params.map((p) => (
+          <NumberInput
+            key={p.name}
+            label={p.name}
+            value={value.params[p.name] ?? p.default}
+            min={p.min ?? undefined}
+            max={p.max ?? undefined}
+            onChange={(v) =>
+              onChange({ ...value, params: { ...value.params, [p.name]: Number(v) || 0 } })
+            }
+            w={80}
+          />
+        ))}
+        <Select
+          label="순위 기준"
+          data={[
+            { value: 'desc', label: '내림차순(desc, 상위값)' },
+            { value: 'asc', label: '오름차순(asc, 하위값)' },
+          ]}
+          value={value.rank_metric}
+          onChange={(m) =>
+            onChange({
+              ...value,
+              rank_metric: (m ?? value.rank_metric) as (typeof SCREENING_RANK_METRICS)[number],
+            })
+          }
+          w={200}
+        />
+        <NumberInput
+          label="top_n"
+          value={value.top_n}
+          min={1}
+          onChange={(v) => onChange({ ...value, top_n: Math.max(1, Math.trunc(Number(v) || 1)) })}
+          w={100}
+        />
+      </Group>
+      <Tooltip label="OHLCV 이력을 조회하지 않고 저장된 재무제표/밸류에이션 최신값으로만 계산됩니다(가격·기술 팩터는 선택 목록에 나타나지 않습니다).">
         <Text size="xs" c="dimmed" style={{ cursor: 'help', width: 'fit-content' }}>
-          상위 top_n 종목만 통과하는 횡단면 순위 조건
+          재무제표/밸류에이션 팩터 값 기준 상위 top_n 종목만 통과하는 횡단면 순위 조건
         </Text>
       </Tooltip>
     </Stack>

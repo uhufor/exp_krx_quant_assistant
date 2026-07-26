@@ -53,7 +53,7 @@ def run_daily(
     ),
 ):
     """일일 퀀트 파이프라인 실행(활성 선언형 전략 집합 — strategy-activate로 제어)."""
-    from quant_krx.data.fdr_adapter import FDRAdapter
+    from quant_krx.data.pykrx_adapter import PyKrxAdapter
     from quant_krx.jobs.daily import DailyJob
     from quant_krx.storage.db import Database
 
@@ -61,7 +61,7 @@ def run_daily(
     db = Database(settings.duckdb_path)
     db.connect()
 
-    provider = FDRAdapter()
+    provider = PyKrxAdapter()
     notifier = None
 
     if not dry_run:
@@ -192,7 +192,7 @@ def validate_config():
 
     table.add_row("DuckDB Path", "✓", settings.duckdb_path)
     table.add_row("Report Dir", "✓", settings.report_dir)
-    table.add_row("Provider", "✓", settings.provider.primary)
+    table.add_row("Provider", "✓", "krx_dart (KRX+DART)")
     table.add_row("Watchlist", "✓" if ok else "✗", msg)
     table.add_row("LLM Mock", "✓" if settings.llm.mock else "—", str(settings.llm.mock))
 
@@ -428,7 +428,7 @@ def strategy_backtest_cmd(
     fees: float = typer.Option(0.003, "--fees"),
     slippage: float = typer.Option(0.001, "--slippage"),
     data_source: str = typer.Option(
-        "fixture", "--data-source", help="데이터 소스: fixture | fdr | pykrx"
+        "fixture", "--data-source", help="데이터 소스: fixture | krx_dart(KRX+DART 실데이터)"
     ),
     benchmark: str = typer.Option(
         None, "--benchmark", help="벤치마크 심볼/시장(예: KOSPI) — 상대 성과 함께 산출"
@@ -442,7 +442,7 @@ def strategy_backtest_cmd(
     from quant_krx.workspace.errors import WorkspaceError
     from quant_krx.workspace.service import WorkspaceService
 
-    if data_source not in ("fixture", "fdr", "pykrx"):
+    if data_source not in ("fixture", "krx_dart"):
         console.print(f"[red]알 수 없는 --data-source '{data_source}'[/red]")
         raise typer.Exit(1)
 
@@ -1047,7 +1047,7 @@ def screen_run_cmd(
     condition_id: str = typer.Argument(..., help="실행할 스크리닝 조건 id"),
     as_of: str = typer.Option(None, "--as-of", help="기준일(YYYY-MM-DD, 생략 시 오늘)"),
     data_source: str = typer.Option(
-        "fixture", "--data-source", help="데이터 소스: fixture | fdr | pykrx"
+        "fixture", "--data-source", help="데이터 소스: fixture | krx_dart(KRX+DART 실데이터)"
     ),
 ):
     """스크리닝 조건을 실행해 통과 종목(코드+이름)을 rich 표로 출력한다(저장 없음)."""
@@ -1057,7 +1057,7 @@ def screen_run_cmd(
 
     from quant_krx.screening.errors import ScreeningError
 
-    if data_source not in ("fixture", "fdr", "pykrx"):
+    if data_source not in ("fixture", "krx_dart"):
         console.print(f"[red]알 수 없는 --data-source '{data_source}'[/red]")
         raise typer.Exit(1)
 

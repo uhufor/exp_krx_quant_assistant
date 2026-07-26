@@ -12,6 +12,7 @@ from quant_krx.screening.definition import (
     Composition,
     ConstantOperand,
     FactorOperand,
+    FactorRankPredicate,
     FormulaOperand,
     Node,
     Operand,
@@ -42,13 +43,17 @@ class ScreeningEvaluationContext:
     """단일 종목 스크리닝 평가 컨텍스트 — 팩터 계산 캐시 소유.
 
     workspace.evaluation.EvaluationContext와 동일 패턴이나 독립 구현(격리, INV-2)이며,
-    screening은 FactorInput/펀더멘털을 다루지 않고 순수 OHLCV DataFrame만 취급한다.
+    종목별 트리 평가 자체(_eval_screening_node/_eval_factor_operand)는 순수 OHLCV
+    DataFrame만 취급한다. RankPredicate/FactorRankPredicate는 예외 — 둘 다 이 컨텍스트
+    바깥(ranking.py/factor_ranking.py)에서 유니버스 단위로 미리 계산되고, 트리 평가는
+    그 결과(rank_membership)를 조회만 한다(전자는 시장 스냅샷, 후자는 종목별 재무/
+    밸류에이션 DB 조회 — 데이터 경로가 다를 뿐 둘 다 OHLCV 시계열은 쓰지 않는다).
     ohlcv는 동적 lookback으로 이미 잘라낸 구간이고, index는 그 기준 인덱스다.
     """
 
     ohlcv: pd.DataFrame
     index: pd.DatetimeIndex
-    rank_membership: Mapping[RankPredicate, set[str]] | None = None
+    rank_membership: Mapping[RankPredicate | FactorRankPredicate, set[str]] | None = None
     current_symbol: str | None = None
     _factor_cache: dict[tuple[str, str, str], pd.Series] = field(default_factory=dict)
 
@@ -145,6 +150,23 @@ def _eval_screening_node(node: Node, ctx: ScreeningEvaluationContext) -> pd.Seri
             )
         passed = ctx.current_symbol in ctx.rank_membership[node]
         return pd.Series(passed, index=ctx.index, dtype=bool)
+    if isinstance(node, FactorRankPredicate):
+        # RankPredicate와 동일 패턴(사전 계산 결과 조회) — 계산 위치만 factor_ranking.py로
+        # 다르다(TRD-R04 §4.4). 사전 계산 미제공/누락 시 동일하게 명확히 거부한다.
+        if ctx.rank_membership is None:
+            raise ScreeningError(
+                "FactorRankPredicate는 universe 단위 평가 전용 — 조건 트리에서 미리 추출해"
+                " factor_ranking.py로 위임해야 함(ScreeningEvaluationContext.rank_membership"
+                " 미제공)"
+            )
+        if node not in ctx.rank_membership:
+            raise ScreeningError(
+                "FactorRankPredicate 사전 계산 결과가 rank_membership에 없습니다"
+                f"(factor_id={node.factor_id!r}, column={node.column!r}) —"
+                " apply_factor_rank_predicates를 동일 조건 트리로 먼저 호출해야 합니다"
+            )
+        passed = ctx.current_symbol in ctx.rank_membership[node]
+        return pd.Series(passed, index=ctx.index, dtype=bool)
     raise ScreeningError(f"미지의 screening 노드입니다: {node!r}")
 
 
@@ -162,6 +184,24 @@ def extract_rank_predicates(node: Node) -> list[RankPredicate]:
     return []
 
 
+def extract_factor_rank_predicates(node: Node) -> list[FactorRankPredicate]:
+    """조건 트리를 순회해 모든 FactorRankPredicate 리프를 수집한다(TRD-R04 §4.3).
+
+    extract_rank_predicates와 트리 순회 구조는 동일하나 반환 타입이 달라 함수를
+    분리한다(명확성 우선, TRD-R04 §4.4).
+    """
+    if isinstance(node, FactorRankPredicate):
+        return [node]
+    if isinstance(node, Composition):
+        collected: list[FactorRankPredicate] = []
+        for child in node.operands:
+            collected.extend(extract_factor_rank_predicates(child))
+        return collected
+    if isinstance(node, WindowPredicate):
+        return extract_factor_rank_predicates(node.inner)
+    return []
+
+
 def tree_requires_ohlcv(node: Node) -> bool:
     """조건 트리가 종목별 시계열 OHLCV 평가를 필요로 하는지 여부.
 
@@ -173,7 +213,7 @@ def tree_requires_ohlcv(node: Node) -> bool:
     실제로 OHLCV를 요구할 때만 필요하다고 판단한다(내부가 RankPredicate뿐이면 결과가
     항상 상수이므로 windowing이 무의미하되 안전하다).
     """
-    if isinstance(node, RankPredicate):
+    if isinstance(node, (RankPredicate, FactorRankPredicate)):
         return False
     if isinstance(node, Predicate):
         return True
@@ -229,8 +269,8 @@ def estimate_required_lookback(
             node.inner, factor_lookback_resolver=factor_lookback_resolver
         )
         return node.n_bars + inner
-    if isinstance(node, RankPredicate):
-        # RankPredicate는 시장 스냅샷(as_of 단일 시점)만으로 평가되고 종목별 시계열을
-        # 전혀 쓰지 않으므로(tree_requires_ohlcv 참고) 이력이 필요 없다(0봉).
+    if isinstance(node, (RankPredicate, FactorRankPredicate)):
+        # 둘 다 as_of 단일 시점 횡단면 사실만으로 평가되고 종목별 시계열을 전혀 쓰지
+        # 않으므로(tree_requires_ohlcv 참고) 이력이 필요 없다(0봉).
         return 0
     return 0

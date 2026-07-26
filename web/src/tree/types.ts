@@ -17,6 +17,7 @@ export type FactorOption = {
   category: string
   output: string[]
   params: FactorParamSpec[]
+  required_data: string[]
 }
 
 export type ConstantOperandJSON = { kind: 'constant'; value: number }

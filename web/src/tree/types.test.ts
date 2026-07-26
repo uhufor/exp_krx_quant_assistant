@@ -8,6 +8,7 @@ const SMA: FactorOption = {
   category: 'trend',
   output: ['sma'],
   params: [{ name: 'window', type: 'int', default: 20, description: '', min: 2, max: null, choices: null }],
+  required_data: ['ohlcv'],
 }
 
 describe('defaultOperand', () => {

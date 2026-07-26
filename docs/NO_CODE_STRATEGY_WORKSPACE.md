@@ -80,11 +80,11 @@ uv run python -m quant_krx fetch-fundamental [옵션들]
 | `--start` | 수집 시작일(`YYYY-MM-DD`) | 종료일 5년 전 |
 | `--end` | 수집 종료일(`YYYY-MM-DD`) | 오늘 |
 | `--kind`, `-k` | 수집 종류: `valuation`(밸류에이션) \| `financials`(재무제표) \| `all` | `all` |
-| `--provider`, `-p` | 데이터 제공자: `fixture`(오프라인 합성) \| `pykrx`(실 데이터, 밸류에이션만 지원) | `fixture` |
+| `--provider`, `-p` | 데이터 제공자: `fixture`(오프라인 합성) \| `pykrx`(실 데이터, 밸류에이션만 지원) \| `dart`(실 데이터, 재무제표만 지원) | `fixture` |
 
 멱등 수집이며, PK 중복·미래 일자·음수 필드 위반 행은 저장에서 제외되고 결과 표에
-제외 사유(종목:사유)가 함께 표시된다. `financials`는 DART 연동 전까지 `pykrx`
-provider에서 미지원(오류 종료).
+제외 사유(종목:사유)가 함께 표시된다. `financials`는 `pykrx` provider에서 미지원(오류
+종료) — 재무제표 실데이터는 `--provider dart`(환경변수 `DART_API_KEY` 필요)로 수집한다.
 
 ```bash
 # 오프라인 테스트(Fixture) — 네트워크 없이 합성 데이터 수집
@@ -92,6 +92,10 @@ uv run python -m quant_krx fetch-fundamental --provider fixture --symbols 005930
 
 # 실 데이터 수집(PyKrx, 밸류에이션만 지원)
 uv run python -m quant_krx fetch-fundamental --provider pykrx --kind valuation \
+    --start 2024-01-01 --end 2024-12-31
+
+# 실 데이터 수집(DART, 재무제표만 지원)
+uv run python -m quant_krx fetch-fundamental --provider dart --kind financials \
     --start 2024-01-01 --end 2024-12-31
 ```
 
@@ -472,19 +476,21 @@ uv run python -m quant_krx strategy-backtest STRATEGY_ID [옵션들]
 | `--end` | 백테스트 종료일(`YYYY-MM-DD`) | 오늘 |
 | `--fees` | 거래당 수수료율 | `0.003` |
 | `--slippage` | 거래당 슬리피지율 | `0.001` |
-| `--data-source` | OHLCV 데이터 소스: `fixture`(오프라인 합성) \| `fdr` \| `pykrx` | `fixture` |
+| `--data-source` | 데이터 소스: `fixture`(OHLCV+펀더멘털 전부 오프라인 합성) \| `krx_dart`(OHLCV·밸류에이션=PyKrx, 재무제표=DART 조합 실데이터) | `fixture` |
 | `--benchmark` | 벤치마크 심볼/시장(예: `KOSPI`) — 지정 시 벤치마크 수익률·초과수익률을 함께 산출. 수집 실패는 경고만 남기고 백테스트는 계속 진행 | 없음 |
 
-전략이 밸류에이션/재무제표 팩터를 참조하면 펀더멘털 provider(`fixture`→
-`FixtureFundamentalAdapter`, `fdr`/`pykrx`→`PyKrxFundamentalAdapter`)로 자동 선행
-수집된다. 이때 `fundamental_daily`에 symbol별로 이미 저장된 날짜 범위(min~max)를
-조회해, 요청 구간 중 **이미 커버된 부분은 재수집하지 않고 경계 바깥(이전/이후)의
-부족분만 증분 수집**한다 — 예를 들어 1~6월을 이미 받아둔 뒤 1~12월로 백테스트하면
-7~12월만 추가로 fetch된다. `--data-source pykrx`처럼 개인 자격증명(KRX 로그인)이
-필요한 provider에서 불필요한 재호출을 피하기 위한 설계다(경계 내부의 결측은 거래
-캘린더상 자연 휴장일로 간주해 채우지 않는다). 종목이 2개 이상이면 표 제목에 대표
-종목(첫 번째 심볼)이 표기되고, 종목별 상세 지표는 `report.per_symbol`을 통해 별도
-확인한다.
+전략이 밸류에이션/재무제표 팩터를 참조하면 펀더멘털이 자동 선행 수집된다 —
+`fixture`는 `FixtureFundamentalAdapter` 하나가 양쪽 다 처리하고, `krx_dart`는
+밸류에이션=`PyKrxFundamentalAdapter`/재무제표=`DartFundamentalAdapter`로 kind별로
+분리 수집한다(단일 provider가 둘 다 지원하지 않으므로). 한쪽 수집이 실패해도(예:
+`DART_API_KEY` 미설정) 다른 kind나 OHLCV 기반 팩터 계산은 막지 않고 경고만 남긴다.
+이때 `fundamental_daily`에 symbol별로 이미 저장된 날짜 범위(min~max)를 조회해,
+요청 구간 중 **이미 커버된 부분은 재수집하지 않고 경계 바깥(이전/이후)의 부족분만
+증분 수집**한다 — 예를 들어 1~6월을 이미 받아둔 뒤 1~12월로 백테스트하면 7~12월만
+추가로 fetch된다. `--data-source krx_dart`처럼 개인 자격증명(KRX 로그인)이 필요한
+provider에서 불필요한 재호출을 피하기 위한 설계다(경계 내부의 결측은 거래 캘린더상
+자연 휴장일로 간주해 채우지 않는다). 종목이 2개 이상이면 표 제목에 대표 종목(첫
+번째 심볼)이 표기되고, 종목별 상세 지표는 `report.per_symbol`을 통해 별도 확인한다.
 
 ```bash
 uv run python -m quant_krx strategy-backtest my_strategy --data-source fixture

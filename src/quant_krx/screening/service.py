@@ -8,10 +8,11 @@ from datetime import date, datetime, timedelta
 import pandas as pd
 
 from quant_krx.data.base import DataProvider
-from quant_krx.factors import list_factors
+from quant_krx.factors import FactorMetadata, list_factors
 from quant_krx.screening.definition import (
     Composition,
     FactorOperand,
+    FactorRankPredicate,
     FormulaOperand,
     Node,
     Operand,
@@ -26,8 +27,11 @@ from quant_krx.screening.evaluation import (
     _eval_screening_node,
     default_factor_lookback_resolver,
     estimate_required_lookback,
+    extract_factor_rank_predicates,
     tree_requires_ohlcv,
 )
+from quant_krx.screening.factor_ranking import apply_factor_rank_predicates
+from quant_krx.screening.fundamental_sync import sync_universe_fundamentals
 from quant_krx.screening.ranking import apply_rank_predicates
 from quant_krx.screening.universe import resolve_scan_universe
 from quant_krx.screening.universe_data import fetch_universe_ohlcv_cached
@@ -127,9 +131,9 @@ class ScreeningService:
         구조 검증(arity/연산자/스키마 버전)은 from_dict 시점에 이미 강제되므로 여기서는
         실행 가능성에 직결되는 의미 검증만 수행한다.
         """
-        known_factor_ids = {f.id for f in list_factors()}
+        metadata_by_id = {f.id: f for f in list_factors()}
         errors: list[str] = []
-        _collect_validation_errors(cond.root, known_factor_ids, errors)
+        _collect_validation_errors(cond.root, metadata_by_id, errors)
         return ValidationResult(ok=not errors, errors=tuple(errors))
 
     # --- 유니버스 사전 조회 (실행 전 대상 종목수 표시용, 시계열/순위 계산 없음) ---
@@ -170,13 +174,38 @@ class ScreeningService:
             self._provider, cond.universe.exclusion_filters
         )
 
-        rank_membership = apply_rank_predicates(
-            cond.root,
-            provider=self._provider,
-            symbols=universe_symbols,
-            as_of=as_of,
-            market=cond.universe.market,
+        rank_membership: dict[RankPredicate | FactorRankPredicate, set[str]] = dict(
+            apply_rank_predicates(
+                cond.root,
+                provider=self._provider,
+                symbols=universe_symbols,
+                as_of=as_of,
+                market=cond.universe.market,
+            )
         )
+
+        factor_rank_predicates = extract_factor_rank_predicates(cond.root)
+        if factor_rank_predicates:
+            metadata_by_id = {f.id: f for f in list_factors()}
+            needs_valuation = any(
+                "valuation" in metadata_by_id[p.factor_id].required_data
+                for p in factor_rank_predicates
+                if p.factor_id in metadata_by_id
+            )
+            needs_financials = any(
+                "financials" in metadata_by_id[p.factor_id].required_data
+                for p in factor_rank_predicates
+                if p.factor_id in metadata_by_id
+            )
+            sync_universe_fundamentals(
+                self._db, universe_symbols, as_of=as_of,
+                needs_valuation=needs_valuation, needs_financials=needs_financials,
+            )
+            rank_membership.update(
+                apply_factor_rank_predicates(
+                    cond.root, db=self._db, symbols=universe_symbols, as_of=as_of,
+                )
+            )
 
         # 조건 트리가 RankPredicate로만 구성되면(예: "거래대금 Top100 AND 거래량 Top100")
         # OHLCV 확보 자체가 불필요하다 — 생략하면 순위 조건이 무관한 OHLCV 결측/일시 조회
@@ -257,9 +286,11 @@ def _prepare_symbol_ohlcv(raw: pd.DataFrame) -> pd.DataFrame:
     return df[["open", "high", "low", "close", "volume"]].astype(float)
 
 
-def _validate_operand(operand: Operand, known_factor_ids: set[str], errors: list[str]) -> None:
+def _validate_operand(
+    operand: Operand, metadata_by_id: dict[str, FactorMetadata], errors: list[str]
+) -> None:
     if isinstance(operand, FactorOperand):
-        if operand.factor_id not in known_factor_ids:
+        if operand.factor_id not in metadata_by_id:
             errors.append(f"미지의 팩터 id '{operand.factor_id}'(피연산자 참조)")
     elif isinstance(operand, FormulaOperand):
         errors.append(
@@ -269,21 +300,32 @@ def _validate_operand(operand: Operand, known_factor_ids: set[str], errors: list
 
 
 def _collect_validation_errors(
-    node: Node, known_factor_ids: set[str], errors: list[str]
+    node: Node, metadata_by_id: dict[str, FactorMetadata], errors: list[str]
 ) -> None:
     if isinstance(node, Predicate):
-        _validate_operand(node.left, known_factor_ids, errors)
-        _validate_operand(node.right, known_factor_ids, errors)
+        _validate_operand(node.left, metadata_by_id, errors)
+        _validate_operand(node.right, metadata_by_id, errors)
     elif isinstance(node, Composition):
         for child in node.operands:
-            _collect_validation_errors(child, known_factor_ids, errors)
+            _collect_validation_errors(child, metadata_by_id, errors)
     elif isinstance(node, WindowPredicate):
-        _collect_validation_errors(node.inner, known_factor_ids, errors)
+        _collect_validation_errors(node.inner, metadata_by_id, errors)
     elif isinstance(node, RankPredicate):
         if node.column not in _SNAPSHOT_COLUMNS:
             errors.append(
                 f"RankPredicate.column '{node.column}'은 시장 스냅샷 네이티브 컬럼이 아닙니다"
                 f"(허용: {sorted(_SNAPSHOT_COLUMNS)})"
             )
-        if node.factor_id not in known_factor_ids:
+        if node.factor_id not in metadata_by_id:
             errors.append(f"미지의 팩터 id '{node.factor_id}'(RankPredicate 참조)")
+    elif isinstance(node, FactorRankPredicate):
+        metadata = metadata_by_id.get(node.factor_id)
+        if metadata is None:
+            errors.append(f"미지의 팩터 id '{node.factor_id}'(FactorRankPredicate 참조)")
+        elif "ohlcv" in metadata.required_data:
+            errors.append(
+                f"FactorRankPredicate는 OHLCV가 필요한 팩터를 지원하지 않습니다"
+                f"(factor_id={node.factor_id!r}, required_data={metadata.required_data}) —"
+                " sma/rsi 등 가격·기술 팩터는 RankPredicate 또는 Predicate/WindowPredicate를"
+                " 사용하십시오"
+            )
