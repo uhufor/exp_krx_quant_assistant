@@ -13,6 +13,7 @@ import { BacktestPage } from './pages/BacktestPage'
 import { FactorsPage } from './pages/FactorsPage'
 import { FormulaBuilderPage } from './pages/FormulaBuilderPage'
 import { RuleBuilderPage } from './pages/RuleBuilderPage'
+import { ScreeningBuilderPage } from './pages/ScreeningBuilderPage'
 import { StrategyBuilderPage } from './pages/StrategyBuilderPage'
 
 const TABS = [
@@ -21,6 +22,7 @@ const TABS = [
   { value: 'rules', label: '규칙' },
   { value: 'strategies', label: '전략' },
   { value: 'backtest', label: '백테스트' },
+  { value: 'screenings', label: '스크리닝' },
 ] as const
 type Tab = (typeof TABS)[number]['value']
 
@@ -80,6 +82,9 @@ function App() {
           </Tabs.Panel>
           <Tabs.Panel value="backtest">
             <BacktestPage />
+          </Tabs.Panel>
+          <Tabs.Panel value="screenings">
+            <ScreeningBuilderPage />
           </Tabs.Panel>
         </Tabs>
       </AppShell.Main>

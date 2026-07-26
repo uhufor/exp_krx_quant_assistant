@@ -19,7 +19,18 @@ def ohlcv() -> pd.DataFrame:
     return df[["open", "high", "low", "close", "volume"]].astype(float)
 
 
-TECHNICAL_IDS = ["price", "sma", "ema", "rsi", "macd", "bollinger", "momentum"]
+TECHNICAL_IDS = [
+    "price",
+    "sma",
+    "ema",
+    "rsi",
+    "macd",
+    "bollinger",
+    "momentum",
+    "trading_value",
+    "volume",
+    "rolling_high",
+]
 
 
 @pytest.mark.parametrize("factor_id", TECHNICAL_IDS)
@@ -127,6 +138,27 @@ def test_bollinger_window_below_min_rejected():
 
     with pytest.raises(ParamValidationError):
         get_factor("bollinger", window=1)
+
+
+def test_trading_value_parity(ohlcv):
+    factor = get_factor("trading_value")
+    result = compute_factor(factor, ohlcv)
+    expected = ohlcv["close"] * ohlcv["volume"]
+    pd.testing.assert_series_equal(result["trading_value"], expected, check_names=False)
+
+
+def test_volume_is_volume_passthrough(ohlcv):
+    factor = get_factor("volume")
+    result = compute_factor(factor, ohlcv)
+    pd.testing.assert_series_equal(result["volume"], ohlcv["volume"], check_names=False)
+
+
+def test_rolling_high_parity(ohlcv):
+    factor = get_factor("rolling_high", window=20)
+    result = compute_factor(factor, ohlcv)
+    expected = ohlcv["high"].rolling(20).max()
+    pd.testing.assert_series_equal(result["rolling_high"], expected, check_names=False)
+    assert result["rolling_high"].iloc[:19].isna().all()
 
 
 def test_paramspec_default_matches_constructor_default_for_all_technical_factors():

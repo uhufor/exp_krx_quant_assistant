@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 
 from quant_krx._jsonnorm import DefinitionError
 from quant_krx.factors.errors import FactorError, ParamValidationError, UnknownFactorError
+from quant_krx.screening import errors as screening_errors
 from quant_krx.workspace.errors import WorkspaceError
 
 
@@ -43,6 +44,20 @@ async def workspace_error_handler(request: Request, exc: WorkspaceError) -> JSON
     return JSONResponse(status_code=409, content=_detail(exc))
 
 
+async def screening_empty_universe_handler(
+    request: Request, exc: screening_errors.EmptyUniverseError
+) -> JSONResponse:
+    # 필터 적용 후 스캔 유니버스가 비어 실행 결과가 성립하지 않는 도메인 조건 — 409.
+    return JSONResponse(status_code=409, content=_detail(exc))
+
+
+async def screening_error_handler(
+    request: Request, exc: screening_errors.ScreeningError
+) -> JSONResponse:
+    # 정의 파싱/스키마 다운그레이드/미지원 필터 등 입력 오류 — 400(EPIC-03).
+    return JSONResponse(status_code=400, content=_detail(exc))
+
+
 def register_error_handlers(app: FastAPI) -> None:
     # 구체적 예외를 먼저 등록해야 하위 클래스(UnknownFactorError/ParamValidationError 등)가
     # 상위 클래스(FactorError) 핸들러보다 우선 매칭된다.
@@ -52,3 +67,7 @@ def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(FactorError, factor_error_handler)
     app.add_exception_handler(DefinitionError, definition_error_handler)
     app.add_exception_handler(WorkspaceError, workspace_error_handler)
+    app.add_exception_handler(screening_errors.EmptyUniverseError, screening_empty_universe_handler)
+    # MalformedDefinitionError/SchemaVersionError/UnsupportedFilterError는 별도 등록 없이도
+    # MRO를 통해 아래 ScreeningError 핸들러로 위임된다(동일 핸들러이므로 중복 등록 불필요).
+    app.add_exception_handler(screening_errors.ScreeningError, screening_error_handler)

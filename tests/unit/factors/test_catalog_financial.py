@@ -185,4 +185,4 @@ def test_consolidated_preferred_over_separate_in_financial_ratios(idx):
 def test_registry_has_32_factors_after_financial_catalog():
     from quant_krx.factors.registry import list_factors
 
-    assert len(list_factors()) == 32
+    assert len(list_factors()) == 35

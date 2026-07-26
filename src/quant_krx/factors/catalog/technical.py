@@ -208,6 +208,80 @@ class MomentumFactor:
         return _mark_warmup_nan(result)
 
 
+class TradingValueFactor:
+    """종가 × 거래량 근사 거래대금.
+
+    근사치 — 크로스섹셔널 순위(RankPredicate) 계산에는 사용하지 않으며,
+    시계열 Formula/Predicate 비교 전용이다. 전종목 순위는 별도 시장 스냅샷
+    데이터를 사용할 예정이라 값이 다를 수 있다.
+    """
+
+    @property
+    def metadata(self) -> FactorMetadata:
+        return FactorMetadata(
+            id="trading_value",
+            display_name="거래대금(근사)",
+            category=FactorCategory.VOLUME,
+            description=(
+                "종가 × 거래량 근사 거래대금. 근사치 — 크로스섹셔널 순위"
+                "(RankPredicate) 계산에는 사용하지 않으며, 시계열 Formula/Predicate"
+                " 비교 전용."
+            ),
+            params=(),
+            output=("trading_value",),
+            required_data=("ohlcv",),
+        )
+
+    def compute(self, data: pd.DataFrame) -> pd.DataFrame:
+        result = pd.DataFrame(
+            {"trading_value": data["close"] * data["volume"]}, index=data.index
+        )
+        return result
+
+
+class VolumeFactor:
+    """거래량 패스스루."""
+
+    @property
+    def metadata(self) -> FactorMetadata:
+        return FactorMetadata(
+            id="volume",
+            display_name="거래량",
+            category=FactorCategory.VOLUME,
+            description="거래량 패스스루",
+            params=(),
+            output=("volume",),
+            required_data=("ohlcv",),
+        )
+
+    def compute(self, data: pd.DataFrame) -> pd.DataFrame:
+        result = pd.DataFrame({"volume": data["volume"]}, index=data.index)
+        return result
+
+
+class RollingHighFactor:
+    def __init__(self, window: int = 252):
+        self.window = window
+
+    @property
+    def metadata(self) -> FactorMetadata:
+        return FactorMetadata(
+            id="rolling_high",
+            display_name="롤링 최고가",
+            category=FactorCategory.TREND,
+            description="고가 rolling 최댓값",
+            params=(ParamSpec("window", int, 252, "롤링 기간(일)", min=1),),
+            output=("rolling_high",),
+            required_data=("ohlcv",),
+        )
+
+    def compute(self, data: pd.DataFrame) -> pd.DataFrame:
+        result = pd.DataFrame(
+            {"rolling_high": data["high"].rolling(self.window).max()}, index=data.index
+        )
+        return _mark_warmup_nan(result)
+
+
 def register() -> None:
     register_factor("price", PriceFactor)
     register_factor("sma", SMAFactor)
@@ -216,3 +290,6 @@ def register() -> None:
     register_factor("macd", MACDFactor)
     register_factor("bollinger", BollingerFactor)
     register_factor("momentum", MomentumFactor)
+    register_factor("trading_value", TradingValueFactor)
+    register_factor("volume", VolumeFactor)
+    register_factor("rolling_high", RollingHighFactor)

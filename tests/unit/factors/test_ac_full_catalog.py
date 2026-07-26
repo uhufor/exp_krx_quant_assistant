@@ -27,12 +27,14 @@ _EXPECTED_CATEGORY = {
     "gp_to_assets": FactorCategory.QUALITY, "revenue_growth": FactorCategory.GROWTH,
     "op_income_growth": FactorCategory.GROWTH, "debt_to_equity": FactorCategory.STABILITY,
     "current_ratio": FactorCategory.STABILITY, "interest_coverage": FactorCategory.STABILITY,
+    "trading_value": FactorCategory.VOLUME, "volume": FactorCategory.VOLUME,
+    "rolling_high": FactorCategory.TREND,
 }
 
 
 def test_ac_r01_01_registry_has_exactly_32_factors_with_no_duplicates():
     factors = list_factors()
-    assert len(factors) == 32
+    assert len(factors) == 35
     ids = [f.id for f in factors]
     assert len(ids) == len(set(ids))
 

@@ -11,6 +11,7 @@ import duckdb
 import pandas as pd
 
 from quant_krx.data.schema import FUNDAMENTAL_SCHEMA_SQL
+from quant_krx.data.screening_schema import SCREENING_SCHEMA_SQL
 from quant_krx.formula.definition import Formula
 from quant_krx.formula.validation import validate_formula_strict
 from quant_krx.rule.definition import Rule
@@ -33,6 +34,7 @@ class Database:
         self._conn = duckdb.connect(str(self._path))
         self._conn.execute(SCHEMA_SQL)
         self._conn.execute(FUNDAMENTAL_SCHEMA_SQL)
+        self._conn.execute(SCREENING_SCHEMA_SQL)
         self._conn.execute(DEFINITION_SCHEMA_SQL)
         self._conn.execute(WORKSPACE_SCHEMA_SQL)
 
@@ -337,3 +339,38 @@ class Database:
     def delete_template(self, template_id: str) -> None:
         with self.cursor() as conn:
             conn.execute("DELETE FROM strategy_templates WHERE template_id=?", [template_id])
+
+    # --- screening_conditions (EPIC-03) — body(JSON)가 진실 원천 ---
+
+    def upsert_screening_condition(
+        self, id_: str, *, name: str, body: dict, now: datetime
+    ) -> None:
+        with self.cursor() as conn:
+            existing = conn.execute(
+                "SELECT created_at FROM screening_conditions WHERE id=?", [id_]
+            ).fetchone()
+            created_at = existing[0] if existing else now
+            conn.execute(
+                """INSERT OR REPLACE INTO screening_conditions
+                        (id, name, body, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?)""",
+                [id_, name, json.dumps(body), created_at, now],
+            )
+
+    def get_screening_condition(self, id_: str) -> dict | None:
+        with self.cursor() as conn:
+            row = conn.execute(
+                "SELECT body FROM screening_conditions WHERE id=?", [id_]
+            ).fetchone()
+        return json.loads(row[0]) if row is not None else None
+
+    def list_screening_conditions(self) -> list[dict]:
+        with self.cursor() as conn:
+            rows = conn.execute(
+                "SELECT body FROM screening_conditions ORDER BY id"
+            ).fetchall()
+        return [json.loads(row[0]) for row in rows]
+
+    def delete_screening_condition(self, id_: str) -> None:
+        with self.cursor() as conn:
+            conn.execute("DELETE FROM screening_conditions WHERE id=?", [id_])

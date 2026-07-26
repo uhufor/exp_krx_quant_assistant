@@ -60,6 +60,9 @@ class FDRAdapter:
                 continue
             code_col = next((c for c in df.columns if c in ("Code", "Symbol", "종목코드")), None)
             name_col = next((c for c in df.columns if c in ("Name", "종목명")), None)
+            market_col = next(
+                (c for c in df.columns if c in ("Market", "시장구분", "시장")), None
+            )
             if code_col is None or name_col is None:
                 continue
             codes = df[code_col].astype(str).str.zfill(6)
@@ -67,10 +70,27 @@ class FDRAdapter:
                 row = df[codes == sym]
                 if not row.empty:
                     name = str(row.iloc[0][name_col])
-                    result[sym] = {"symbol": sym, "name": name, "source": self.source_name}
+                    market_label = str(row.iloc[0][market_col]) if market_col else ""
+                    result[sym] = {
+                        "symbol": sym,
+                        "name": name,
+                        "source": self.source_name,
+                        "market": self._normalize_market(market_label),
+                    }
                     remaining.discard(sym)
 
         return result
+
+    @staticmethod
+    def _normalize_market(label: str) -> str:
+        """FDR StockListing의 시장 구분 라벨을 KOSPI/KOSDAQ으로 정규화한다(KONEX 등
+        그 외 값은 화면 표시 대상이 아니므로 빈 문자열로 남긴다)."""
+        lowered = label.lower()
+        if "kosdaq" in lowered:
+            return "KOSDAQ"
+        if "kospi" in lowered:
+            return "KOSPI"
+        return ""
 
     def _normalize(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()

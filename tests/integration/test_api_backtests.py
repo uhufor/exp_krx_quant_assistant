@@ -93,6 +93,13 @@ def test_run_backtest_returns_metrics_equity_curve_and_trades(tmp_path) -> None:
     assert equity_curve
     assert set(equity_curve[0].keys()) == {"date", "value"}
 
+    # GUI 자산곡선에 주가를 겹쳐 보여주기 위한 종가 곡선(price_curve) — 자산곡선과
+    # 동일 형상([{date, value}])이며 같은 기간만큼 채워진다.
+    price_curve = body["results"]["005930"]["price_curve"]
+    assert isinstance(price_curve, list)
+    assert price_curve
+    assert set(price_curve[0].keys()) == {"date", "value"}
+
     trades = body["results"]["005930"]["trades"]
     assert isinstance(trades, list)
     if trades:  # 신호 발생 여부는 데이터 의존적이므로 형상만 검증

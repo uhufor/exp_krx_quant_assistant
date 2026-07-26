@@ -20,7 +20,9 @@ class WatchlistConfig(BaseSettings):
 
 
 class ProviderConfig(BaseSettings):
-    model_config = _NESTED_CONFIG
+    # 독립 BaseSettings로 default_factory 인스턴스화되므로 env_prefix가 없으면
+    # 접두사 없는 필드명(PRIMARY 등)으로 조회되어 PROVIDER__PRIMARY가 무시된다.
+    model_config = SettingsConfigDict(**_NESTED_CONFIG, env_prefix="PROVIDER__")
     primary: str = "fdr"  # "fdr" | "pykrx"
     fallback: str = "pykrx"
     cache_days: int = 1  # 캐시 유효 기간 (거래일)
