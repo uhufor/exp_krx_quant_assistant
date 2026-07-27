@@ -6,6 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **모든 응답, 설명, 질문은 한국어로 작성한다.** 코드·명령어·파일 경로는 영어 그대로 유지.
 
+## 프로젝트 현황 (개발 우선순위)
+
+이 저장소는 두 축으로 구성된다.
+
+| 축 | 범위 | 상태 |
+|---|---|---|
+| **데일리 어시스트** | `jobs/daily.py` → `signals/` → `reports/` → `notify/` (watchlist 기반 일일 리포트 + Telegram) | **1차 완성 · 홀딩**. 회귀만 방지하고 신규 기능은 추가하지 않는다. |
+| **퀀트 플랫폼** | `factors/` · `formula/` · `rule/` · `strategy/` · `workspace/` · `screening/` · `api/` · `web/` (노코드 전략 설계·백테스트·전종목 스크리닝·GUI) | **활성 개발**. 신규 작업은 기본적으로 이쪽이다. |
+
+작업 지시가 모호할 때는 플랫폼 축을 우선 가정하고, 데일리 파이프라인은 "플랫폼 산출물을
+소비하는 다운스트림"으로만 취급한다(전략 원천은 이미 활성 선언형 전략 단일 — D3).
+
 ## Commands
 
 ```bash
@@ -21,18 +33,50 @@ uv run pytest tests/unit/test_signals.py -q
 # Test (single case)
 uv run pytest tests/integration/test_daily_job.py::test_daily_job_dry_run -q
 
-# CLI
+# Web(GUI 프론트엔드) 테스트/빌드
+cd web && npm test && npm run build
+
+# CLI — 데일리(홀딩)
 uv run python -m quant_krx validate-config
 uv run python -m quant_krx run-daily --dry-run       # 알림 없이 전체 파이프라인 실행
 uv run python -m quant_krx run-daily --no-dry-run    # Telegram 실제 발송
+uv run python -m quant_krx show-reports --type all
+
+# CLI — 플랫폼(활성 개발)
 uv run python -m quant_krx list-factors              # 팩터 32종 목록
 uv run python -m quant_krx show-factor <id>          # 팩터 상세
 uv run python -m quant_krx fetch-fundamental --provider fixture  # 펀더멘털 오프라인 수집
+uv run python -m quant_krx formula-create / rule-create / strategy-create <file.json|->
+uv run python -m quant_krx strategy-backtest <id> --data-source fixture [--no-cache]
+uv run python -m quant_krx backtest-list / backtest-show <run_id> / backtest-compare <id> <id>
+uv run python -m quant_krx strategy-activate / strategy-deactivate <id>
+uv run python -m quant_krx strategy-export / strategy-import   # 전이 참조 포함 JSON 번들
+uv run python -m quant_krx screen-create / screen-validate / screen-run <id> --as-of <date>
+uv run python -m quant_krx serve-gui                 # http://127.0.0.1:8765 (API + web/dist)
 ```
+
+CLI는 총 40여 개 커맨드(`__main__.py`)이며 접두사로 계층이 갈린다: `formula-*` / `rule-*` /
+`strategy-*` / `screen-*`. GUI는 동일 서비스 계층(`WorkspaceService`, `ScreeningService`)을
+`api/routers/`를 통해 소비하므로 CLI·GUI 결과는 항상 일치해야 한다.
 
 **Python 3.10 필수** (`vectorbt`가 `python_requires="<3.11"` 제약). `.python-version` 참고.
 
 ## Architecture
+
+### 계층 지도 (의존은 항상 아래→위 단방향)
+
+```
+factors/          순수 계산 32종            ← 실행·저장 계층 import 금지(INV-1, AST 강제)
+formula/ rule/ strategy/   선언형 정의·검증  ← 평가·실행 없음(순수 데이터)
+workspace/        평가·백테스트·템플릿 파사드  → WorkspaceService
+screening/        전종목 조건 스크리닝(독립)   → ScreeningService (rule/formula/strategy 미참조,
+                                              workspace.numeric leaf만 공유 — EPIC-03 D2)
+api/ + web/       FastAPI 라우터 + React GUI  → 위 두 서비스만 소비
+jobs/daily.py     데일리 어시스트(다운스트림)   → 활성 선언형 전략만 실행
+```
+
+`screening/`과 `workspace/`는 **형제 관계이며 서로를 import하지 않는다**. 스크리닝은
+조건 정의만 영속(`screening_conditions`)하고 실행 결과는 저장하지 않는다(휘발성, D5).
 
 ### 파이프라인 (jobs/daily.py)
 
@@ -47,7 +91,7 @@ watchlist → fetch_ohlcv → validate → VectorBT backtest → Signal → Repo
 | 프로토콜 | 위치 | 구현체 |
 |---------|------|--------|
 | `DataProvider` | `data/base.py` | `PyKrxAdapter`, `FixtureAdapter` (테스트 전용) |
-| `Strategy` | `quant/base.py` | `MACrossoverStrategy`, `RSIBreakoutStrategy` |
+| `Strategy`(레거시) | `quant/base.py` | `quant/strategies/*.py` 5종 — **프로덕션 경로에서 미사용**(D3로 선언형 Built-in Template 5종에 흡수). `tests/unit/test_quant.py`만 참조하는 사실상 dead code이며, 신규 전략은 여기 추가하지 않는다. `quant/base.py`의 `BacktestResult`/`BacktestMetrics`와 `quant/metrics.py`는 `workspace/backtest.py`가 계속 재사용한다. |
 | `LLMProvider` | `llm/base.py` | `AnthropicProvider`, `OpenAICompatibleProvider`, `MockProvider` |
 | `Factor` | `factors/base.py` | 32종 (가격·기술 7 + 밸류에이션 11 + 재무제표 14, `factors/catalog/`) |
 | `FundamentalProvider` | `data/fundamental_base.py` | `PyKrxFundamentalAdapter`(밸류에이션), `DartFundamentalAdapter`(재무제표, DART Open API), `FixtureFundamentalAdapter`(테스트) |
@@ -78,13 +122,20 @@ period_end desc)` 정렬 후 그룹 최상단 선택)가 담당하며, 수집 �
 - `Signal` → DuckDB `signals` 저장 → `ReportARenderer`(결정론적) + `ReportBRenderer`(LLM)
 - `RenderedReport` → DuckDB `reports` 저장 → `TelegramNotifier.send()` → `notification_outbox`
 
-### DuckDB 스키마 (storage/schema.py, data/schema.py)
+### DuckDB 스키마 (17개 테이블, `Database.connect()`에서 모두 실행)
 
-10개 테이블. baseline 8개(`storage/schema.py`, 무변경): `symbols`, `ohlcv_daily`,
-`data_fetch_runs`, `strategy_runs`, `signals`, `reports`, `notification_outbox`, `run_events`.
-펀더멘털 additive 2개(`data/schema.py`, `Database.connect()`에서 함께 실행):
-`fundamental_daily`(밸류에이션 일별, `close`는 `ohlcv_daily.close`와 동일 원천),
-`financial_statements`(재무제표 분기, PK `(symbol, fiscal_year, fiscal_quarter, statement_scope)`).
+| 그룹 | 파일 | 테이블 |
+|---|---|---|
+| baseline(데일리, 무변경) | `storage/schema.py` | `symbols`, `ohlcv_daily`, `data_fetch_runs`, `strategy_runs`, `signals`, `reports`, `notification_outbox`, `run_events` |
+| 펀더멘털 | `data/schema.py` | `fundamental_daily`(밸류에이션 일별, `close`는 `ohlcv_daily.close`와 동일 원천), `financial_statements`(분기, PK `(symbol, fiscal_year, fiscal_quarter, statement_scope)`) |
+| 선언형 정의 | `storage/definition_schema.py` | `formulas`, `rules`, `strategies` |
+| 워크스페이스 | `storage/workspace_schema.py` | `strategy_activation`, `strategy_templates` |
+| 스크리닝 | `data/screening_schema.py` | `screening_conditions` (조건 정의만 — 실행 결과 테이블 없음) |
+| 백테스트 이력 | `storage/backtest_schema.py` | `backtest_runs` (P3 — 파라미터·지표·자산곡선, 거래내역은 미저장) |
+
+스키마 진화는 **additive만** — 신규 테이블 추가는 되고 기존 DDL 변경은 금지(공통 불변식 6).
+`strategy_runs`는 데일리 전용이고, `strategy-backtest`/GUI 백테스트 결과는 `backtest_runs`에
+쌓인다(두 테이블은 별개 — 데일리 경로는 P3 이력에 관여하지 않는다).
 
 `notification_outbox`의 UNIQUE 키는 `(channel, content_hash)` — `run_id`가 아님. 동일 내용은 재실행해도 재발송되지 않음.
 
@@ -104,6 +155,20 @@ Pydantic Settings, `.env` 자동 로드. 네스티드 설정:
 **PyKrx KRX 로그인**: `pykrx>=1.2.8`부터 `data.krx.co.kr` 밸류에이션/시가총액 엔드포인트(`get_market_fundamental_by_date`, `get_market_cap_by_date`)가 로그인 세션을 요구한다(OHLCV는 비로그인도 동작). 환경변수 `KRX_ID`/`KRX_PW`(`.env`)가 필요하며, pykrx가 `os.getenv()`로 직접 읽으므로 `__main__.py`의 `load_dotenv()` 호출이 선행되어야 `.env` 값이 적용된다. 미설정/만료 시 `PyKrxFundamentalAdapter.fetch_valuation`이 명확한 `RuntimeError`로 실패한다.
 
 **DART 재무제표 연동** (`roadmap/EPIC_R01/TRD-R01-D-DART_FINANCIALS.md`): `DartFundamentalAdapter.fetch_financials`는 opendart.fss.or.kr Open API로 재무제표 14계정을 실수집한다. 환경변수 `DART_API_KEY`(`.env`)가 필요하며 DART도 `os.getenv()`로 직접 읽는다(KRX_ID/PW와 동일 관례). 종목코드→`corp_code` 매핑은 `data/dart_corp_code.py`(`corpCode.xml` 로컬 캐시, 7일 경과 시 재다운로드), 계정 매핑은 `data/dart_account_mapping.py`(account_id 우선, account_nm 폴백)가 담당한다. 연결(CFS) 우선 → 별도(OFS) 폴백. `invested_capital`은 DART 원천 태그가 없는 파생 컬럼으로 `total_assets`를 그대로 대입한다. `fetch_valuation`은 DART가 제공하지 않는 시장 데이터라 `NotImplementedError` 유지(PyKrxFundamentalAdapter 사용). `strategy-backtest`/`screen-run`의 `--data-source`는 `fixture`(OHLCV+펀더멘털 전부 오프라인 합성) | `krx_dart`(OHLCV·밸류에이션=PyKrx, 재무제표=DART 조합 실데이터) 둘뿐이다 — `fdr`은 pykrx가 기능을 완전히 포괄해 제거됨(FDRAdapter 삭제). 증분 수집 시 API 호출 전 `_worth_attempting()`이 `[start,end]` 범위 밖(계산상 공시 불가능)인 분기를 걸러내고, "아직 미공시"로 확인된 분기는 `DartMissingPeriodCache`(`~/.cache/quant_krx/dart_missing_periods.parquet`)가 1시간 TTL로 재확인을 생략한다(TRD-R04 부록 — 재호출 버그 2건 수정).
+
+**스크리닝 제약(EPIC-03)**: `screening/`은 `rule/`·`formula/`·`strategy/`·`workspace/evaluation.py`·
+`workspace/service.py`를 import하지 않는다(`workspace/numeric.py` leaf만 예외). 제외 필터 10종 중
+6종(관리종목/투자경고·위험/거래정지/정리매매/환기종목/불성실공시)과 `FormulaOperand`는
+**하드 비활성화**(선택 가능한 no-op 금지) — GUI에서 disabled 렌더 + 백엔드 400 이중 방어.
+빈 유니버스는 조용히 통과시키지 않고 `EmptyUniverseError`. 스크리닝은 watchlist와 무관하다
+(`strategy-backtest`도 동일 — watchlist는 데일리 전용).
+
+**로드맵 문서**: PRD/TRD/DESIGN은 `roadmap/EPIC_R0X/`에 `PRD-R0X-TOPIC.md` 규칙으로 둔다
+(`.omc/specs`는 작업용 임시 산출물). R01=팩터 플랫폼+선언형 코어+워크스페이스, R02=GUI,
+R03=노코드 스크리닝, R04=펀더멘털 증분 수집+팩터 순위 스크리닝.
+차기 과제(P3 백테스트 이력 영속 → P1 포트폴리오 백테스트 → P2 스크리닝→유니버스 연결)와
+그 근거·미결 결정 사항은 **`roadmap/BACKLOG.md`** 참고 — 새 세션에서 플랫폼 작업을 시작할 때
+여기부터 읽는다.
 
 **Report A vs B**: 동일 `signal.id`를 참조해야 함. Report A = LLM 없음, 결정론적. Report B = LLM 보조, 동일 신호 기반.
 
