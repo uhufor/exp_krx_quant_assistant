@@ -35,6 +35,9 @@ import type { FactorOption } from '../tree/types'
 
 type FactorRefJSON = { factor_id: string; params: Record<string, number> }
 type RuleBindingJSON = { roles: { entry: string[]; exit: string[] } }
+type UniverseJSON =
+  | { kind: 'static'; symbols: string[] }
+  | { kind: 'screening'; screening_id: string; symbols: [] }
 type RankingJSON =
   | { kind: 'factor'; factor_id: string; column: string; params: Record<string, number>; descending: boolean }
   | { kind: 'formula'; formula_id: string; descending: boolean }
@@ -50,7 +53,7 @@ type StrategyDoc = {
   name: string
   version: string
   factor_refs: FactorRefJSON[]
-  universe: { symbols: string[] }
+  universe: UniverseJSON
   rule: RuleBindingJSON | null
   metadata: Record<string, unknown>
   portfolio: PortfolioJSON | null
@@ -73,7 +76,7 @@ function emptyDoc(id: string, factors: FactorOption[]): StrategyDoc {
     name: '',
     version: '1',
     factor_refs: first ? [{ factor_id: first.id, params: {} }] : [],
-    universe: { symbols: [] },
+    universe: { kind: 'static', symbols: [] },
     rule: null, // 초안 — RuleBinding은 entry가 비어있으면 저장이 거부되므로 null(초안)이 유효한 기본값
     metadata: {},
     portfolio: null, // 미설정 = 종목별 독립 백테스트(기존 동작)
@@ -87,6 +90,7 @@ export function StrategyBuilderPage() {
   const strategyIds = useResourceIds('strategies', refreshKey)
   const ruleIds = useResourceIds('rules', refreshKey)
   const formulaIds = useResourceIds('formulas', refreshKey)
+  const screeningIds = useResourceIds('screenings', refreshKey)
   const templates = useTemplates(refreshKey)
   const [selectedId, setSelectedId] = useState('')
   const [newId, setNewId] = useState('')
@@ -289,11 +293,10 @@ export function StrategyBuilderPage() {
               factors={factors}
             />
 
-            <TagsInput
-              label="대상 종목(universe.symbols, 비어있으면 백테스트 시 종목을 직접 지정해야 함)"
-              placeholder="종목코드 입력 후 Enter(예: 005930)"
-              value={doc.universe.symbols}
-              onChange={(symbols) => setDoc({ ...doc, universe: { symbols } })}
+            <UniverseEditor
+              value={doc.universe}
+              onChange={(universe) => setDoc({ ...doc, universe })}
+              screeningIds={screeningIds}
             />
 
             <RuleBindingEditor
@@ -392,6 +395,68 @@ export function StrategyBuilderPage() {
         </Paper>
       )}
     </Group>
+  )
+}
+
+/** 대상 종목(universe) — 고정 목록 또는 스크리닝 기반 동적 유니버스(P2). */
+function UniverseEditor({
+  value,
+  onChange,
+  screeningIds,
+}: {
+  value: UniverseJSON
+  onChange: (v: UniverseJSON) => void
+  screeningIds: string[]
+}) {
+  return (
+    <div>
+      <Title order={5} mb="xs">
+        대상 종목(universe)
+      </Title>
+      <Stack gap="xs">
+        <Select
+          label="종류"
+          data={[
+            { value: 'static', label: '고정 목록' },
+            { value: 'screening', label: '스크리닝(리밸런싱마다 재평가)' },
+          ]}
+          value={value.kind}
+          onChange={(kind) =>
+            onChange(
+              kind === 'screening'
+                ? { kind: 'screening', screening_id: screeningIds[0] ?? '', symbols: [] }
+                : { kind: 'static', symbols: [] },
+            )
+          }
+          w={280}
+        />
+        {value.kind === 'static' ? (
+          <TagsInput
+            label="종목 목록(비어있으면 백테스트 시 종목을 직접 지정해야 함)"
+            placeholder="종목코드 입력 후 Enter(예: 005930)"
+            value={value.symbols}
+            onChange={(symbols) => onChange({ kind: 'static', symbols })}
+          />
+        ) : (
+          <>
+            <Select
+              label="스크리닝 조건"
+              placeholder={screeningIds.length ? '조건 선택...' : '저장된 스크리닝 조건이 없습니다'}
+              data={screeningIds}
+              value={value.screening_id || null}
+              onChange={(screening_id) =>
+                onChange({ kind: 'screening', screening_id: screening_id ?? '', symbols: [] })
+              }
+              w={280}
+            />
+            <Text size="xs" c="dimmed">
+              리밸런싱 시점마다 이 조건을 그 시점 기준으로 다시 평가해 대상 종목을 교체합니다.
+              포트폴리오 모드가 함께 설정되어 있어야 저장됩니다.
+            </Text>
+          </>
+        )}
+      </Stack>
+    </div>
   )
 }
 

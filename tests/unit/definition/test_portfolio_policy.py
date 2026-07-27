@@ -198,3 +198,68 @@ def test_ranking_factor_counts_toward_factor_refs():
     )
     assert not result.ok
     assert any("rsi" in e for e in result.errors)
+
+
+# --- 동적 유니버스 (P2) ---
+
+
+def test_static_universe_roundtrips_and_defaults_to_static():
+    defn = _defn(universe=Universe(symbols=("005930",)))
+    restored = StrategyDefinition.from_dict(defn.to_dict())
+    assert restored == defn
+    assert restored.universe.kind == "static"
+    assert restored.universe.is_dynamic is False
+
+
+def test_legacy_universe_without_kind_loads_as_static():
+    """kind 필드가 없던 시절 정의도 static으로 읽혀야 한다(하위호환)."""
+    universe = Universe.from_dict({"symbols": ["005930", "000660"]})
+    assert universe.kind == "static"
+    assert universe.symbols == ("005930", "000660")
+
+
+def test_screening_universe_roundtrips():
+    policy = PortfolioPolicy(max_positions=3)
+    defn = _defn(universe=Universe(kind="screening", screening_id="tv_top"), portfolio=policy)
+    restored = StrategyDefinition.from_dict(defn.to_dict())
+    assert restored == defn
+    assert restored.universe.is_dynamic is True
+    assert restored.universe.screening_id == "tv_top"
+
+
+def test_screening_universe_requires_screening_id():
+    with pytest.raises(MalformedDefinitionError, match="screening_id가 필요"):
+        Universe(kind="screening")
+
+
+def test_screening_universe_rejects_symbols():
+    """종목이 시점마다 정해지므로 고정 목록을 함께 두면 어느 쪽이 쓰이는지 모호해진다."""
+    with pytest.raises(MalformedDefinitionError, match="symbols를 지정할 수 없습니다"):
+        Universe(kind="screening", screening_id="c1", symbols=("005930",))
+
+
+def test_static_universe_rejects_screening_id():
+    with pytest.raises(MalformedDefinitionError, match="screening_id를 지정할 수 없습니다"):
+        Universe(kind="static", screening_id="c1")
+
+
+def test_unknown_universe_kind_rejected():
+    with pytest.raises(MalformedDefinitionError, match="미지의 universe.kind"):
+        Universe(kind="dynamic")
+
+
+def test_screening_universe_without_portfolio_rejected():
+    """동적 유니버스는 portfolio 모드에서만 의미가 있다(사용자 확정)."""
+    defn = _defn(universe=Universe(kind="screening", screening_id="c1"), portfolio=None)
+    result = validate_definition(defn)
+    assert not result.ok
+    assert any("portfolio" in e for e in result.errors)
+
+
+def test_screening_universe_with_portfolio_passes():
+    defn = _defn(
+        universe=Universe(kind="screening", screening_id="c1"),
+        portfolio=PortfolioPolicy(max_positions=2),
+    )
+    result = validate_definition(defn)
+    assert result.ok, result.errors

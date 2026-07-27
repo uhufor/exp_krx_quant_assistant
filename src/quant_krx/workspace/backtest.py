@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime
 
@@ -25,6 +26,10 @@ from quant_krx.workspace.portfolio import build_target_weights
 
 # 포트폴리오 모드 결과의 results/키 — 종목 코드와 충돌하지 않도록 6자리 숫자 형식을 피한다.
 PORTFOLIO_KEY = "__portfolio__"
+
+# 동적 유니버스 리졸버(P2): (screening_id, as_of) -> 통과 종목 코드 목록.
+# workspace가 screening 패키지를 import하지 않도록 호출 계층에서 주입한다(형제 관계 유지).
+UniverseResolver = Callable[[str, date], list[str]]
 
 
 @dataclass(frozen=True)
@@ -162,6 +167,7 @@ def run_portfolio_backtest(
     start: date | None = None,
     end: date | None = None,
     run_id: str = "",
+    resolve_universe: UniverseResolver | None = None,
 ) -> BacktestReport:
     """자본을 공유하는 다종목 백테스트(P1).
 
@@ -215,8 +221,28 @@ def run_portfolio_backtest(
         pd.DataFrame(scores_by_symbol).reindex(index) if scores_by_symbol else None
     )
 
+    # 동적 유니버스(P2) — 리밸런싱 시점마다 스크리닝을 재평가해 후보를 좁힌다. 스크리닝
+    # 호출은 주입된 리졸버가 담당한다(workspace가 screening을 직접 import하지 않음).
+    eligible_at = None
+    if defn.universe.is_dynamic:
+        if resolve_universe is None:
+            raise EvaluationError(
+                f"전략 '{defn.id}'은(는) 동적 유니버스(screening_id="
+                f"'{defn.universe.screening_id}')를 쓰지만 유니버스 리졸버가 주입되지"
+                " 않았습니다"
+            )
+        universe_cache: dict[pd.Timestamp, set[str]] = {}
+
+        def eligible_at(ts: pd.Timestamp) -> set[str]:
+            if ts not in universe_cache:
+                universe_cache[ts] = set(
+                    resolve_universe(defn.universe.screening_id, ts.date())
+                )
+            return universe_cache[ts]
+
     weights = build_target_weights(
-        entries_df, exits_df, policy, ranking_scores=ranking_scores, tradable=tradable
+        entries_df, exits_df, policy,
+        ranking_scores=ranking_scores, tradable=tradable, eligible_at=eligible_at,
     )
 
     pf = vbt.Portfolio.from_orders(
@@ -278,6 +304,7 @@ def run_backtest(
     resolve_rule: RuleResolver,
     start: date | None = None,
     end: date | None = None,
+    resolve_universe: UniverseResolver | None = None,
 ) -> BacktestReport:
     """종목별 (close, entries, exits, fees, slippage)를 baseline 엔진에 위임(FR-11/12).
 
@@ -292,6 +319,7 @@ def run_backtest(
             defn, data,
             fees=fees, slippage=slippage, benchmark=benchmark,
             resolve_formula=resolve_formula, resolve_rule=resolve_rule, start=start, end=end,
+            resolve_universe=resolve_universe,
         )
 
     results: dict[str, QuantBacktestResult] = {}

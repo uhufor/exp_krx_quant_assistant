@@ -17,6 +17,11 @@ from quant_krx.data.upsert import upsert_fundamental
 from quant_krx.factors import FactorInput
 from quant_krx.storage.db import Database
 from quant_krx.strategy.definition import StrategyDefinition
+from quant_krx.workspace.dynamic_universe import (
+    DynamicUniversePlan,
+    ScreeningResolver,
+    build_plan,
+)
 from quant_krx.workspace.errors import EmptyOhlcvError
 from quant_krx.workspace.evaluation import FormulaResolver, RuleResolver, strategy_required_data
 
@@ -112,10 +117,38 @@ def resolve_backtest_symbols(
     대상이며, 사용자가 임의 종목을 탐색하는 ad-hoc 백테스트(CLI/GUI)에는 관여하지
     않는다 — universe가 비어 있는데도 watchlist로 조용히 대체되면, 사용자가 명시
     요청한 종목이 아닌 엉뚱한 종목이 실행되고도 에러 없이 넘어가 혼란을 유발한다.
+
+    동적 유니버스(kind="screening")는 종목이 시점마다 정해지므로 여기서 해석하지 않는다 —
+    호출부가 `prepare_dynamic_universe`로 계획을 먼저 세워야 한다(P2).
     """
     if requested:
         return requested
     return list(defn.universe.symbols)
+
+
+def prepare_dynamic_universe(
+    defn: StrategyDefinition,
+    *,
+    start: date,
+    end: date,
+    resolve: ScreeningResolver,
+    on_progress: Callable[[int, int, date], None] | None = None,
+) -> DynamicUniversePlan:
+    """동적 유니버스 계획 수립 — CLI/API 공유 진입점(P2).
+
+    스크리닝 실행 자체는 주입된 `resolve`가 담당하므로 이 모듈은 screening 패키지를
+    import하지 않는다(workspace ↔ screening 형제 관계 유지, EPIC-03 INV-1).
+    """
+    if not defn.universe.is_dynamic:
+        raise ValueError("동적 유니버스 전략에만 사용할 수 있습니다")
+    if defn.portfolio is None:
+        # 저장 시점 검증이 이미 막지만(validate_definition), 직접 호출 경로 이중 방어.
+        raise ValueError("동적 유니버스는 portfolio 정책이 필요합니다")
+    return build_plan(
+        defn.universe.screening_id,
+        start=start, end=end, rebalance=defn.portfolio.rebalance,
+        resolve=resolve, on_progress=on_progress,
+    )
 
 
 def _ohlcv_provider_for(data_source: str) -> DataProvider:

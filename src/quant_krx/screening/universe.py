@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 
 from quant_krx.data.base import DataProvider
 from quant_krx.screening import definition as _definition
@@ -35,13 +36,19 @@ def _krx_stock():
 
 
 def resolve_scan_universe(
-    provider: DataProvider, exclusion_filters: frozenset[str]
+    provider: DataProvider,
+    exclusion_filters: frozenset[str],
+    as_of: date | None = None,
 ) -> list[str]:
     """스캔 유니버스를 해석한다: 전체 종목에서 exclusion_filters 4종을 차감한다.
 
     ScanUniverse가 이미 생성 시점에 미지원 필터 6종을 거부하지만(definition.py),
     이 함수는 ScanUniverse를 거치지 않고 직접 호출될 가능성에 대비해 동일 체크를
     한 번 더 수행한다(이중 방어).
+
+    as_of를 주면 그 시점 상장 종목을 기준으로 삼는다 — 과거 구간 백테스트에서 현재
+    상장 종목만 후보로 두면 생존 편향이 생기기 때문이다(P2). ETF/ETN 티커 목록은
+    pykrx가 시점별 조회를 제공하지 않아 현재 기준이며, 이는 알려진 한계다.
     """
     rejected = frozenset(exclusion_filters) & _definition._UNSUPPORTED_FILTERS
     if rejected:
@@ -50,7 +57,7 @@ def resolve_scan_universe(
             f"(예약 미지원: {sorted(_definition._UNSUPPORTED_FILTERS)})"
         )
 
-    symbols = set(provider.list_symbols(market="KRX"))
+    symbols = set(provider.list_symbols(market="KRX", as_of=as_of))
     raw_symbol_count = len(symbols)
 
     if "etf" in exclusion_filters:

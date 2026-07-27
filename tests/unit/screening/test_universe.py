@@ -150,7 +150,7 @@ def test_empty_universe_raises_when_all_symbols_filtered_out():
 
 def test_empty_universe_raises_when_provider_returns_no_symbols():
     class _EmptyProvider(_NamedFixtureAdapter):
-        def list_symbols(self, market="KRX"):
+        def list_symbols(self, market="KRX", as_of=None):
             return []
 
     with pytest.raises(EmptyUniverseError):
@@ -174,3 +174,37 @@ def test_empty_universe_raises_when_provider_returns_no_symbols():
 def test_unsupported_filter_raises(provider, flt):
     with pytest.raises(UnsupportedFilterError):
         resolve_scan_universe(provider, frozenset({flt}))
+
+
+def test_as_of_is_passed_through_to_provider():
+    """과거 구간 스크리닝은 그 시점 상장 종목을 조회해야 한다(생존 편향 방지, P2).
+
+    as_of가 provider까지 전달되지 않으면 2020년 백테스트가 2026년 상장 종목만 후보로
+    삼게 되어, 그 사이 상장폐지된 종목이 통째로 빠지고 성과가 부풀려진다.
+    """
+    from datetime import date
+
+    seen: list[date | None] = []
+
+    class _RecordingProvider(_NamedFixtureAdapter):
+        def list_symbols(self, market="KRX", as_of=None):
+            seen.append(as_of)
+            return ["005930", "000660"]
+
+    provider = _RecordingProvider(fixture_path=FIXTURE_PATH)
+    resolve_scan_universe(provider, frozenset(), as_of=date(2020, 3, 2))
+
+    assert seen == [date(2020, 3, 2)]
+
+
+def test_as_of_omitted_defaults_to_none():
+    """as_of 미지정 시 provider가 현재 기준으로 판단하도록 None을 그대로 넘긴다."""
+    seen: list[object] = []
+
+    class _RecordingProvider(_NamedFixtureAdapter):
+        def list_symbols(self, market="KRX", as_of=None):
+            seen.append(as_of)
+            return ["005930"]
+
+    resolve_scan_universe(_RecordingProvider(fixture_path=FIXTURE_PATH), frozenset())
+    assert seen == [None]

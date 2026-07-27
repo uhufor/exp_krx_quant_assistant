@@ -16,6 +16,8 @@ vectorbt의 `from_signals`로는 "최대 N종목 동시 보유"를 표현할 수
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pandas as pd
 
 from quant_krx.strategy.definition import PortfolioPolicy
@@ -85,6 +87,7 @@ def build_target_weights(
     *,
     ranking_scores: pd.DataFrame | None = None,
     tradable: pd.DataFrame | None = None,
+    eligible_at: Callable[[pd.Timestamp], set[str]] | None = None,
 ) -> pd.DataFrame:
     """목표 비중 행렬을 만든다.
 
@@ -93,6 +96,9 @@ def build_target_weights(
 
     `tradable`은 해당 시점에 실제 가격 데이터가 있는지 여부다(상장 전/데이터 결손 구간
     제외용). 지정하면 그 구간의 종목은 후보에서 빠진다.
+
+    `eligible_at(date)`는 동적 유니버스(P2)용 훅이다 — 그 시점 스크리닝을 통과한 종목
+    집합을 돌려주며, 후보를 이 집합으로 한 번 더 좁힌다. 미지정이면 전체가 대상이다.
     """
     index = entries.index
     intent = holding_intent(entries, exits)
@@ -102,6 +108,9 @@ def build_target_weights(
     weights = pd.DataFrame(float("nan"), index=index, columns=entries.columns)
     for date in rebalance_dates(index, policy.rebalance):
         candidates = [symbol for symbol in intent.columns if bool(intent.at[date, symbol])]
+        if eligible_at is not None:
+            eligible = eligible_at(date)
+            candidates = [symbol for symbol in candidates if symbol in eligible]
         scores = (
             ranking_scores.loc[date]
             if ranking_scores is not None and date in ranking_scores.index

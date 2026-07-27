@@ -10,8 +10,14 @@ from pydantic import BaseModel
 from quant_krx.api.deps import get_db, get_workspace_service
 from quant_krx.api.errors import NotFoundError
 from quant_krx.api.schemas.backtest import serialize_backtest_report
+from quant_krx.screening.service import ScreeningService
 from quant_krx.storage.db import Database
-from quant_krx.workspace.data_loading import prepare_backtest_data, resolve_backtest_symbols
+from quant_krx.workspace.data_loading import (
+    _ohlcv_provider_for,
+    prepare_backtest_data,
+    prepare_dynamic_universe,
+    resolve_backtest_symbols,
+)
 from quant_krx.workspace.errors import not_found_hint
 from quant_krx.workspace.service import WorkspaceService
 
@@ -53,13 +59,26 @@ def run_backtest(
         hint = not_found_hint(d.id for d in svc.list_strategies())
         raise NotFoundError(f"전략 '{body.strategy_id}'을(를) 찾을 수 없습니다.{hint}")
 
-    sym_list = resolve_backtest_symbols(defn, body.symbols)
+    start_date, end_date = _default_dates(body.end, body.start)
+
+    universe_plan = None
+    if defn.universe.is_dynamic and not body.symbols:
+        screening_svc = ScreeningService(db, _ohlcv_provider_for(body.data_source))
+        universe_plan = prepare_dynamic_universe(
+            defn, start=start_date, end=end_date,
+            resolve=lambda condition_id, as_of: screening_svc.resolve_symbols(
+                condition_id, as_of
+            ),
+        )
+        sym_list = universe_plan.symbols
+    else:
+        sym_list = resolve_backtest_symbols(defn, body.symbols)
+
     if not sym_list:
         raise NotFoundError(
-            "대상 종목이 없습니다. symbols 지정 또는 전략 universe.symbols 설정 필요"
+            "대상 종목이 없습니다. symbols 지정 또는 전략 universe 설정 필요"
+            "(동적 유니버스라면 어느 시점에도 통과 종목이 없었습니다)"
         )
-
-    start_date, end_date = _default_dates(body.end, body.start)
 
     def _warn_benchmark_failure(bm: str, exc: Exception) -> None:
         logger.warning("벤치마크 '%s' 수집 실패(무시하고 계속): %s", bm, exc)
@@ -90,6 +109,7 @@ def run_backtest(
         fees=body.fees, slippage=body.slippage, benchmark=benchmark_df,
         data_source=body.data_source, benchmark_symbol=body.benchmark,
         use_cache=body.use_cache,
+        resolve_universe=universe_plan.eligible_at if universe_plan else None,
     )
     result = serialize_backtest_report(report)
     result["errors"] = {**data_errors, **result["errors"]}
