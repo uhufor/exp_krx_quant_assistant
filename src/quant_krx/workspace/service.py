@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import uuid
 from collections.abc import Callable
 from datetime import date, datetime
 from typing import Literal, TypeVar
@@ -21,6 +22,13 @@ from quant_krx.strategy.validation import is_runnable as strategy_is_runnable
 from quant_krx.strategy.validation import validate_definition
 from quant_krx.workspace.backtest import BacktestReport, run_backtest
 from quant_krx.workspace.errors import WorkspaceError, not_found_hint
+from quant_krx.workspace.fingerprint import (
+    cache_key,
+    coverage_fingerprint,
+    definition_fingerprint,
+    params_fingerprint,
+)
+from quant_krx.workspace.persistence import build_run_record, restore_report
 from quant_krx.workspace.templates import BUILTIN_TEMPLATES, StrategyBundle, TemplateInfo
 
 _Entity = TypeVar("_Entity", Formula, Rule, StrategyDefinition)
@@ -224,7 +232,7 @@ class WorkspaceService:
     def list_active(self) -> tuple[str, ...]:
         return self._db.list_active_strategy_ids()
 
-    # --- 백테스트 (FR-13) ---
+    # --- 백테스트 (FR-13) + 실행 이력·캐시 (P3) ---
 
     def backtest(
         self,
@@ -236,14 +244,78 @@ class WorkspaceService:
         fees: float,
         slippage: float,
         benchmark: pd.DataFrame | None = None,
+        data_source: str = "",
+        benchmark_symbol: str | None = None,
+        use_cache: bool = True,
+        now: datetime | None = None,
     ) -> BacktestReport:
+        """전략을 백테스트하고 결과를 `backtest_runs`에 기록한다.
+
+        정의·파라미터·데이터 지문이 모두 같은 직전 실행이 있으면(`use_cache`) 재계산 없이
+        저장된 결과를 복원한다 — 데이터가 갱신되면 커버리지 지문이 바뀌어 자동 무효화되므로
+        낡은 결과가 반환되지 않는다(`workspace/fingerprint.py` 참고).
+        """
         defn = self._require_runnable_and_valid(strategy_id)
-        return run_backtest(
+        executed_at = now or datetime.now()
+
+        params = {
+            "symbols": sorted(data.keys()),
+            "start": start.isoformat() if start else None,
+            "end": end.isoformat() if end else None,
+            "fees": fees,
+            "slippage": slippage,
+            "data_source": data_source,
+            "benchmark": benchmark_symbol,
+        }
+        definition_hash = definition_fingerprint(self._collect_bundle(defn).to_dict())
+        params_hash = params_fingerprint(
+            symbols=sorted(data.keys()), start=start, end=end,
+            fees=fees, slippage=slippage,
+            data_source=data_source, benchmark=benchmark_symbol,
+        )
+        coverage = coverage_fingerprint(data, benchmark)
+        key = cache_key(definition_hash, params_hash, coverage)
+
+        if use_cache:
+            cached = self._db.find_backtest_run_by_cache_key(key)
+            if cached is not None:
+                return restore_report(cached)
+
+        report = run_backtest(
             defn, data,
             fees=fees, slippage=slippage, benchmark=benchmark,
             resolve_formula=self.get_formula, resolve_rule=self.get_rule,
             start=start, end=end,
         )
+        run_id = f"{executed_at:%Y%m%d}-{uuid.uuid4().hex[:8]}"
+        report = dataclasses.replace(report, run_id=run_id, executed_at=executed_at)
+        self._db.insert_backtest_run(
+            build_run_record(
+                report,
+                run_id=run_id, cache_key=key, strategy_id=strategy_id,
+                definition_hash=definition_hash, coverage_fingerprint=coverage,
+                params=params, executed_at=executed_at,
+            )
+        )
+        return report
+
+    # --- 실행 이력 조회 (P3) ---
+
+    def list_backtest_runs(
+        self, *, strategy_id: str | None = None, limit: int = 50
+    ) -> list[dict]:
+        return self._db.list_backtest_runs(strategy_id=strategy_id, limit=limit)
+
+    def get_backtest_run(self, run_id: str) -> BacktestReport | None:
+        record = self._db.get_backtest_run(run_id)
+        return restore_report(record) if record is not None else None
+
+    def get_backtest_run_record(self, run_id: str) -> dict | None:
+        """복원된 리포트가 아니라 저장 원본이 필요할 때(파라미터·지문 비교용)."""
+        return self._db.get_backtest_run(run_id)
+
+    def delete_backtest_run(self, run_id: str) -> None:
+        self._db.delete_backtest_run(run_id)
 
     # --- Template (FR-19/20/21) ---
 

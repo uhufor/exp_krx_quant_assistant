@@ -4,6 +4,7 @@ import {
   Badge,
   Button,
   Card,
+  Checkbox,
   Group,
   Paper,
   ScrollArea,
@@ -18,6 +19,7 @@ import {
 import { IconAlertCircle, IconPlayerPlay } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
 import { api, ApiError } from '../api/client'
+import { BacktestHistoryPanel } from './BacktestHistoryPanel'
 
 type Metrics = {
   total_return: number
@@ -44,6 +46,10 @@ type BacktestReport = {
     }
   >
   errors: Record<string, string>
+  // 실행 이력(P3) — from_cache면 저장된 결과 복원이라 trades가 비어 있다.
+  run_id: string
+  executed_at: string | null
+  from_cache: boolean
 }
 
 // 결과 화면 전 영역 공통 — 소수점은 최대 5자리까지만 표시(요청사항).
@@ -189,6 +195,9 @@ export function BacktestPage() {
   const [selectedSymbol, setSelectedSymbol] = useState('')
   const [error, setError] = useState('')
   const [running, setRunning] = useState(false)
+  const [useCache, setUseCache] = useState(true)
+  // 실행이 끝날 때마다 증가시켜 이력 패널이 다시 조회하도록 만드는 신호.
+  const [historyKey, setHistoryKey] = useState(0)
 
   useEffect(() => {
     api
@@ -212,11 +221,13 @@ export function BacktestPage() {
         end: end || undefined,
         data_source: dataSource,
         benchmark: benchmark || undefined,
+        use_cache: useCache,
       })
       .then((r) => {
         setReport(r)
         const first = Object.keys(r.results)[0] ?? ''
         setSelectedSymbol(first)
+        setHistoryKey((k) => k + 1)
       })
       .catch((e: ApiError) => setError(e.message))
       .finally(() => setRunning(false))
@@ -273,6 +284,12 @@ export function BacktestPage() {
             onChange={(e) => setBenchmark(e.currentTarget.value)}
             w={130}
           />
+          <Checkbox
+            label="저장된 결과 재사용"
+            checked={useCache}
+            onChange={(e) => setUseCache(e.currentTarget.checked)}
+            mb={6}
+          />
           <Button
             leftSection={<IconPlayerPlay size={16} />}
             onClick={handleRun}
@@ -291,6 +308,24 @@ export function BacktestPage() {
 
       {report && (
         <Stack gap="md">
+          <Group gap="xs">
+            <Badge variant="light" color={report.from_cache ? 'gray' : 'teal'}>
+              {report.from_cache ? '저장된 결과 재사용' : '신규 실행'}
+            </Badge>
+            <Text size="xs" c="dimmed">
+              run_id: {report.run_id}
+              {report.executed_at &&
+                ` · ${new Date(report.executed_at).toLocaleString('ko-KR')}`}
+            </Text>
+          </Group>
+
+          {report.from_cache && (
+            <Alert icon={<IconAlertCircle size={16} />} color="gray">
+              저장된 실행 결과를 불러왔습니다. 거래내역은 저장 대상이 아니라 표시되지 않습니다 —
+              필요하면 &quot;저장된 결과 재사용&quot;을 해제하고 다시 실행하세요.
+            </Alert>
+          )}
+
           {Object.keys(report.errors).length > 0 && (
             <Alert icon={<IconAlertCircle size={16} />} color="yellow" title="일부 종목 제외됨">
               <Stack gap={4}>
@@ -397,6 +432,8 @@ export function BacktestPage() {
           )}
         </Stack>
       )}
+
+      <BacktestHistoryPanel strategyId={strategyId} refreshKey={historyKey} />
     </Stack>
   )
 }

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+import threading
 import uuid
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -19,9 +21,30 @@ from quant_krx.rule.validation import validate_rule_strict
 from quant_krx.strategy.definition import StrategyDefinition
 from quant_krx.strategy.validation import validate_definition_strict
 
+from .backtest_schema import BACKTEST_SCHEMA_SQL
 from .definition_schema import DEFINITION_SCHEMA_SQL
 from .schema import SCHEMA_SQL
 from .workspace_schema import WORKSPACE_SCHEMA_SQL
+
+_SCHEMA_STATEMENTS = (
+    SCHEMA_SQL,
+    FUNDAMENTAL_SCHEMA_SQL,
+    SCREENING_SCHEMA_SQL,
+    DEFINITION_SCHEMA_SQL,
+    WORKSPACE_SCHEMA_SQL,
+    BACKTEST_SCHEMA_SQL,
+)
+
+# DDL에서 테이블명을 추출해 둔다 — 목록을 따로 하드코딩하면 신규 테이블 추가 시 드리프트가 생긴다.
+_SCHEMA_TABLES = frozenset(
+    re.findall(r"CREATE TABLE IF NOT EXISTS\s+(\w+)", "\n".join(_SCHEMA_STATEMENTS))
+)
+
+# 같은 프로세스 안에서 DDL 실행을 직렬화한다(아래 _ensure_schema 주석 참고).
+_SCHEMA_LOCK = threading.Lock()
+
+# 다른 프로세스가 동시에 같은 테이블을 만드는 경우의 재시도 횟수.
+_SCHEMA_MAX_ATTEMPTS = 3
 
 
 class Database:
@@ -32,11 +55,44 @@ class Database:
 
     def connect(self) -> None:
         self._conn = duckdb.connect(str(self._path))
-        self._conn.execute(SCHEMA_SQL)
-        self._conn.execute(FUNDAMENTAL_SCHEMA_SQL)
-        self._conn.execute(SCREENING_SCHEMA_SQL)
-        self._conn.execute(DEFINITION_SCHEMA_SQL)
-        self._conn.execute(WORKSPACE_SCHEMA_SQL)
+        self._ensure_schema()
+
+    def _ensure_schema(self) -> None:
+        """누락된 테이블이 있을 때만 DDL을 실행한다.
+
+        GUI는 요청마다 새 커넥션을 열므로(`api/deps.py::get_db`) 최초 진입 시 여러 요청이
+        동시에 `CREATE TABLE IF NOT EXISTS`를 실행한다. DuckDB에서 두 트랜잭션이 같은
+        테이블을 동시에 만들면 카탈로그 write-write 충돌(TransactionException)이 나므로:
+
+        1. 모든 테이블이 이미 있으면 DDL을 아예 실행하지 않는다 — 정상 경로(테이블이 갖춰진
+           이후의 거의 모든 호출)에서 쓰기 트랜잭션 자체가 사라진다.
+        2. 실제 생성이 필요하면 프로세스 내 락으로 직렬화한다.
+        3. 그래도 충돌하면(다른 프로세스가 동시에 생성 중) 재시도한다 — 그 사이 상대가 생성을
+           마쳤다면 1번 조건이 성립해 즉시 통과한다.
+        """
+        assert self._conn is not None
+        for attempt in range(_SCHEMA_MAX_ATTEMPTS):
+            if not self._missing_tables():
+                return
+            try:
+                with _SCHEMA_LOCK:
+                    for statement in _SCHEMA_STATEMENTS:
+                        self._conn.execute(statement)
+                return
+            except duckdb.TransactionException:
+                if attempt == _SCHEMA_MAX_ATTEMPTS - 1:
+                    raise
+                self._conn.rollback()
+
+    def _missing_tables(self) -> set[str]:
+        assert self._conn is not None
+        existing = {
+            row[0]
+            for row in self._conn.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema='main'"
+            ).fetchall()
+        }
+        return set(_SCHEMA_TABLES) - existing
 
     def close(self) -> None:
         if self._conn:
@@ -374,3 +430,75 @@ class Database:
     def delete_screening_condition(self, id_: str) -> None:
         with self.cursor() as conn:
             conn.execute("DELETE FROM screening_conditions WHERE id=?", [id_])
+
+    # --- 백테스트 실행 이력 (P3) ---
+
+    _BACKTEST_COLUMNS = (
+        "run_id, cache_key, strategy_id, definition_hash, coverage_fingerprint, "
+        "params, metrics, per_symbol, equity_curves, benchmark, benchmark_note, "
+        "errors, executed_at"
+    )
+
+    @staticmethod
+    def _backtest_row_to_dict(row: tuple) -> dict:
+        keys = [c.strip() for c in Database._BACKTEST_COLUMNS.split(",")]
+        record = dict(zip(keys, row, strict=True))
+        for json_key in ("params", "metrics", "per_symbol", "equity_curves", "errors"):
+            record[json_key] = json.loads(record[json_key])
+        return record
+
+    def insert_backtest_run(self, record: dict) -> None:
+        """실행 이력 1건 삽입. run_id는 호출자가 생성한다(YYYYMMDD-{uuid8} 관례)."""
+        with self.cursor() as conn:
+            conn.execute(
+                f"INSERT OR REPLACE INTO backtest_runs ({self._BACKTEST_COLUMNS}) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    record["run_id"],
+                    record["cache_key"],
+                    record["strategy_id"],
+                    record["definition_hash"],
+                    record["coverage_fingerprint"],
+                    json.dumps(record["params"]),
+                    json.dumps(record["metrics"]),
+                    json.dumps(record["per_symbol"]),
+                    json.dumps(record["equity_curves"]),
+                    record.get("benchmark"),
+                    record.get("benchmark_note"),
+                    json.dumps(record.get("errors", {})),
+                    record["executed_at"],
+                ],
+            )
+
+    def find_backtest_run_by_cache_key(self, cache_key: str) -> dict | None:
+        """동일 cache_key의 가장 최근 실행 1건(캐시 조회용)."""
+        with self.cursor() as conn:
+            row = conn.execute(
+                f"SELECT {self._BACKTEST_COLUMNS} FROM backtest_runs "
+                "WHERE cache_key=? ORDER BY executed_at DESC LIMIT 1",
+                [cache_key],
+            ).fetchone()
+        return self._backtest_row_to_dict(row) if row is not None else None
+
+    def get_backtest_run(self, run_id: str) -> dict | None:
+        with self.cursor() as conn:
+            row = conn.execute(
+                f"SELECT {self._BACKTEST_COLUMNS} FROM backtest_runs WHERE run_id=?", [run_id]
+            ).fetchone()
+        return self._backtest_row_to_dict(row) if row is not None else None
+
+    def list_backtest_runs(self, *, strategy_id: str | None = None, limit: int = 50) -> list[dict]:
+        """최근 실행 순 목록. strategy_id 지정 시 해당 전략만."""
+        where = "WHERE strategy_id=?" if strategy_id else ""
+        params = [strategy_id, limit] if strategy_id else [limit]
+        with self.cursor() as conn:
+            rows = conn.execute(
+                f"SELECT {self._BACKTEST_COLUMNS} FROM backtest_runs {where} "
+                "ORDER BY executed_at DESC LIMIT ?",
+                params,
+            ).fetchall()
+        return [self._backtest_row_to_dict(row) for row in rows]
+
+    def delete_backtest_run(self, run_id: str) -> None:
+        with self.cursor() as conn:
+            conn.execute("DELETE FROM backtest_runs WHERE run_id=?", [run_id])

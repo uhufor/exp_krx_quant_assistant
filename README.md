@@ -189,6 +189,36 @@ uv run python -m quant_krx screen-delete my_screen
 연산자/노드 종류는 [roadmap/EPIC_R03/](roadmap/EPIC_R03/)(PRD/TRD/DESIGN R03), 팩터 순위
 조건(FactorRankPredicate)과 실행 시점 증분 동기화는 [roadmap/EPIC_R04/](roadmap/EPIC_R04/) 참고.
 
+### 백테스트 실행 이력 (`backtest-*`)
+
+`strategy-backtest`와 GUI 백테스트는 실행 결과(파라미터·지표·자산곡선)를 DuckDB
+`backtest_runs`에 **자동 기록**합니다. 전략·참조 규칙/공식·실행 파라미터·입력 데이터가
+모두 동일한 직전 실행이 있으면 재계산 없이 저장된 결과를 즉시 복원합니다.
+
+```bash
+# 실행 이력 목록(최근순)
+uv run python -m quant_krx backtest-list
+uv run python -m quant_krx backtest-list --strategy my_strategy --limit 50
+
+# 실행 1건 상세(파라미터·전체/종목별 지표·지문)
+uv run python -m quant_krx backtest-show 20260727-1a2b3c4d
+
+# 실행 2건 이상 나란히 비교
+uv run python -m quant_krx backtest-compare 20260727-1a2b3c4d 20260727-5e6f7a8b
+
+# 캐시를 무시하고 강제 재계산
+uv run python -m quant_krx strategy-backtest my_strategy --no-cache
+```
+
+캐시 키는 **정의 지문**(전략 + 전이 참조 Rule/Formula 폐포) · **파라미터 지문**(종목·기간·
+수수료·슬리피지·데이터소스·벤치마크) · **데이터 지문**(실제로 조립된 OHLCV/밸류에이션/
+재무제표 전체 해시)의 합성입니다. DART/KRX로 데이터가 새로 채워지거나 과거 값이 정정되면
+데이터 지문이 바뀌어 캐시가 자동 무효화되므로 낡은 결과가 표시되지 않습니다.
+
+> 거래내역(trades)은 재실행으로 재생성 가능해 저장하지 않습니다. 따라서 캐시로 복원된
+> 결과에는 거래내역이 표시되지 않으며, 필요하면 `--no-cache`(GUI에서는 "저장된 결과 재사용"
+> 해제)로 다시 실행하세요.
+
 ### GUI (웹 인터페이스)
 
 CLI의 팩터 조회·공식/규칙/전략 CRUD·백테스트 실행을 로컬 1인용 웹 GUI로도 사용할 수 있습니다
@@ -200,7 +230,7 @@ CLI의 팩터 조회·공식/규칙/전략 CRUD·백테스트 실행을 로컬 1
 화면은 상단 탭으로 구성됩니다: **팩터**(32종 카탈로그 읽기 전용 조회) · **공식**(Formula, 트리
 편집기로 팩터를 조합한 파생 지표 생성) · **규칙**(Rule, 비교/AND·OR·NOT 조건 트리 편집기) ·
 **전략**(Strategy, 공식/규칙 참조 + 활성화·템플릿·Export/Import) · **백테스트**(전략 실행 + 지표
-요약·equity curve 차트·거래내역).
+요약·equity curve 차트·거래내역 + 실행 이력 목록과 2건 이상 선택 비교).
 
 **최초 설정(1회, 이후 프론트엔드 코드를 바꿨을 때만 다시)**
 

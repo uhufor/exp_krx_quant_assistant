@@ -177,3 +177,90 @@ def test_run_backtest_no_symbols_returns_404(tmp_path) -> None:
     )
     assert resp.status_code == 404
     assert "대상 종목이 없습니다" in resp.json()["detail"]
+
+
+# --- 실행 이력·캐시 API (P3) ---
+
+_RUN_BODY = {
+    "strategy_id": "smoke_strategy",
+    "symbols": ["005930"],
+    "start": "2024-01-02",
+    "end": "2024-12-31",
+    "data_source": "fixture",
+}
+
+
+def test_run_backtest_reports_run_id_and_cache_flag(tmp_path) -> None:
+    client = _client(tmp_path)
+    _seed_runnable_strategy(client)
+
+    first = client.post("/api/backtests", json=_RUN_BODY).json()
+    assert first["run_id"]
+    assert first["from_cache"] is False
+    assert first["executed_at"]
+
+    second = client.post("/api/backtests", json=_RUN_BODY).json()
+    assert second["from_cache"] is True
+    assert second["run_id"] == first["run_id"]
+
+
+def test_run_backtest_use_cache_false_forces_new_run(tmp_path) -> None:
+    client = _client(tmp_path)
+    _seed_runnable_strategy(client)
+
+    first = client.post("/api/backtests", json=_RUN_BODY).json()
+    second = client.post("/api/backtests", json={**_RUN_BODY, "use_cache": False}).json()
+
+    assert second["from_cache"] is False
+    assert second["run_id"] != first["run_id"]
+
+
+def test_list_backtest_runs_returns_summaries_without_curves(tmp_path) -> None:
+    client = _client(tmp_path)
+    _seed_runnable_strategy(client)
+    client.post("/api/backtests", json=_RUN_BODY)
+
+    resp = client.get("/api/backtests/runs")
+    assert resp.status_code == 200
+    runs = resp.json()
+    assert len(runs) == 1
+    assert runs[0]["strategy_id"] == "smoke_strategy"
+    assert runs[0]["params"]["data_source"] == "fixture"
+    assert "equity_curves" not in runs[0], "목록 응답은 곡선 데이터를 싣지 않는다"
+
+
+def test_list_backtest_runs_filters_by_strategy(tmp_path) -> None:
+    client = _client(tmp_path)
+    _seed_runnable_strategy(client)
+    client.post("/api/backtests", json=_RUN_BODY)
+
+    assert len(client.get("/api/backtests/runs?strategy_id=smoke_strategy").json()) == 1
+    assert client.get("/api/backtests/runs?strategy_id=other").json() == []
+
+
+def test_get_backtest_run_returns_equity_curves(tmp_path) -> None:
+    client = _client(tmp_path)
+    _seed_runnable_strategy(client)
+    run_id = client.post("/api/backtests", json=_RUN_BODY).json()["run_id"]
+
+    resp = client.get(f"/api/backtests/runs/{run_id}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["run_id"] == run_id
+    curves = body["equity_curves"]["005930"]
+    assert curves["equity"]
+    assert set(curves["equity"][0].keys()) == {"date", "value"}
+
+
+def test_get_backtest_run_missing_returns_404(tmp_path) -> None:
+    client = _client(tmp_path)
+    _seed_runnable_strategy(client)
+    assert client.get("/api/backtests/runs/no-such-run").status_code == 404
+
+
+def test_list_backtest_runs_on_fresh_db_returns_empty(tmp_path) -> None:
+    """이력이 하나도 없는 최초 상태에서도 200 + 빈 목록이어야 한다(GUI 첫 진입 경로)."""
+    client = _client(tmp_path)
+    resp = client.get("/api/backtests/runs")
+    assert resp.status_code == 200
+    assert resp.json() == []

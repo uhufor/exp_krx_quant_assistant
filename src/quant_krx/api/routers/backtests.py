@@ -28,6 +28,7 @@ class BacktestRequest(BaseModel):
     fees: float = 0.003
     slippage: float = 0.001
     benchmark: str | None = None
+    use_cache: bool = True  # False면 동일 조건의 저장된 결과를 무시하고 재계산(P3)
 
 
 def _default_dates(end: date | None, start: date | None) -> tuple[date, date]:
@@ -87,7 +88,50 @@ def run_backtest(
     report = svc.backtest(  # runnable/검증 실패 -> WorkspaceError -> 409(api/errors.py)
         body.strategy_id, data=data, start=start_date, end=end_date,
         fees=body.fees, slippage=body.slippage, benchmark=benchmark_df,
+        data_source=body.data_source, benchmark_symbol=body.benchmark,
+        use_cache=body.use_cache,
     )
     result = serialize_backtest_report(report)
     result["errors"] = {**data_errors, **result["errors"]}
     return result
+
+
+@router.get("/runs")
+def list_backtest_runs(
+    strategy_id: str | None = None,
+    limit: int = 50,
+    svc: WorkspaceService = Depends(get_workspace_service),
+) -> list[dict[str, Any]]:
+    """저장된 백테스트 실행 이력 목록(최근순, P3)."""
+    return [_serialize_run_summary(r) for r in svc.list_backtest_runs(
+        strategy_id=strategy_id, limit=limit
+    )]
+
+
+@router.get("/runs/{run_id}")
+def get_backtest_run(
+    run_id: str,
+    svc: WorkspaceService = Depends(get_workspace_service),
+) -> dict[str, Any]:
+    """저장된 실행 1건 — 실행 파라미터 + 지표 + 자본곡선(거래내역은 미저장)."""
+    record = svc.get_backtest_run_record(run_id)
+    if record is None:
+        raise NotFoundError(f"백테스트 실행 '{run_id}'을(를) 찾을 수 없습니다")
+    return {**_serialize_run_summary(record), "equity_curves": record["equity_curves"]}
+
+
+def _serialize_run_summary(record: dict[str, Any]) -> dict[str, Any]:
+    """equity_curves를 제외한 실행 요약 — 목록 응답이 곡선 데이터로 비대해지지 않게 한다."""
+    return {
+        "run_id": record["run_id"],
+        "strategy_id": record["strategy_id"],
+        "params": record["params"],
+        "metrics": record["metrics"],
+        "per_symbol": record["per_symbol"],
+        "benchmark": record["benchmark"],
+        "benchmark_note": record["benchmark_note"],
+        "errors": record["errors"],
+        "definition_hash": record["definition_hash"],
+        "coverage_fingerprint": record["coverage_fingerprint"],
+        "executed_at": record["executed_at"].isoformat(),
+    }

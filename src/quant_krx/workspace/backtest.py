@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 
 import pandas as pd
 import vectorbt as vbt
@@ -29,6 +29,11 @@ class BacktestReport:
     benchmark_note: str | None = None
     results: dict[str, QuantBacktestResult] = field(default_factory=dict)
     errors: dict[str, str] = field(default_factory=dict)
+    # --- 실행 이력(P3) — run_backtest 자체는 채우지 않고 WorkspaceService가 부여한다.
+    # from_cache=True면 저장된 이력에서 복원된 리포트이며 results[*].trades는 항상 비어 있다.
+    run_id: str = ""
+    executed_at: datetime | None = None
+    from_cache: bool = False
 
 
 def _combine_and(rule_ids: tuple[str, ...], ctx: EvaluationContext) -> pd.Series:
