@@ -541,10 +541,41 @@ def strategy_backtest_cmd(
         for sym, msg in report.errors.items():
             console.print(f"  [yellow]{sym}: {msg}[/yellow]")
 
+    if report.is_portfolio:
+        policy = defn.portfolio
+        console.print(
+            f"[cyan]포트폴리오 모드[/cyan] — 최대 {policy.max_positions}종목 · "
+            f"{policy.rebalance} 리밸런싱 · {policy.sizing} · "
+            f"초기자본 {policy.initial_cash:,.0f}원"
+        )
+        console.print(_metrics_table(report.metrics, f"백테스트(포트폴리오): {strategy_id}"))
+        _print_weights_table(report.weights)
+        return
+
     title = f"백테스트: {strategy_id}"
     if len(sym_list) > 1:
         title += f" (대표 종목: {sym_list[0]}, 종목별 지표는 report.per_symbol 참조)"
     console.print(_metrics_table(report.metrics, title))
+
+
+def _print_weights_table(weights: dict, limit: int = 12) -> None:
+    """리밸런싱일별 목표 비중 — 건수가 많으면 최근 것부터 limit개만 표시한다."""
+    if not weights:
+        return
+    dates = sorted(weights)
+    shown = dates[-limit:]
+    table = Table(title="리밸런싱 배분", show_lines=False)
+    table.add_column("일자")
+    table.add_column("종목 (비중)")
+    for date_key in shown:
+        allocation = weights[date_key]
+        cells = ", ".join(
+            f"{symbol} ({weight:.1%})" for symbol, weight in sorted(allocation.items())
+        )
+        table.add_row(date_key, cells or "[dim]보유 없음[/dim]")
+    console.print(table)
+    if len(dates) > len(shown):
+        console.print(f"[dim]... 총 {len(dates)}회 중 최근 {len(shown)}회만 표시[/dim]")
 
 
 def _metrics_table(metrics, title: str) -> Table:
@@ -641,6 +672,7 @@ def backtest_show_cmd(run_id: str = typer.Argument(..., help="조회할 백테�
     info.add_row("수수료/슬리피지", f"{params.get('fees')} / {params.get('slippage')}")
     info.add_row("벤치마크", params.get("benchmark") or "-")
     info.add_row("실행 시각", f"{record['executed_at']:%Y-%m-%d %H:%M:%S}")
+    info.add_row("실행 모드", "포트폴리오" if record["is_portfolio"] else "종목별 독립")
     info.add_row("정의 지문", record["definition_hash"][:16])
     info.add_row("데이터 지문", record["coverage_fingerprint"][:16])
     console.print(info)
@@ -648,6 +680,9 @@ def backtest_show_cmd(run_id: str = typer.Argument(..., help="조회할 백테�
     from quant_krx.workspace.serialization import deserialize_metrics
 
     console.print(_metrics_table(deserialize_metrics(record["metrics"]), "전체 지표"))
+
+    if record["is_portfolio"]:
+        _print_weights_table(record["weights"])
 
     if record["per_symbol"]:
         per = Table(title="종목별 지표", show_lines=False)

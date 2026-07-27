@@ -165,11 +165,18 @@ class WorkspaceService:
     # --- 활성 참조 보호 (FR-04a, C1-i — 온디맨드 전이 폐포, 상태 무보유) ---
 
     def _transitive_closure(self, defn: StrategyDefinition) -> set[tuple[str, str]]:
-        """defn의 rule 슬롯이 전이 참조하는 (kind, id) 집합. rule=None(초안)이면 빈 집합."""
+        """defn의 rule 슬롯이 전이 참조하는 (kind, id) 집합. rule=None(초안)이면 빈 집합.
+
+        portfolio.ranking이 참조하는 formula도 포함한다(P1) — 그래야 활성 전략이 랭킹으로
+        쓰는 formula를 삭제·수정하려 할 때 차단되고, Export 번들에도 함께 담긴다.
+        """
         closure: set[tuple[str, str]] = set()
         if defn.rule is None:
             return closure
         formula_seed: set[str] = set()
+        ranking = defn.portfolio.ranking if defn.portfolio is not None else None
+        if ranking is not None and ranking.kind == "formula":
+            formula_seed.add(ranking.formula_id)
         for rid in tuple(defn.rule.entry) + tuple(defn.rule.exit):
             closure.add(("rule", rid))
             rule = self.get_rule(rid)

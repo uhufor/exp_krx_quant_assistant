@@ -21,7 +21,7 @@ from quant_krx.rule.validation import validate_rule_strict
 from quant_krx.strategy.definition import StrategyDefinition
 from quant_krx.strategy.validation import validate_definition_strict
 
-from .backtest_schema import BACKTEST_SCHEMA_SQL
+from .backtest_schema import BACKTEST_MIGRATION_SQL, BACKTEST_SCHEMA_SQL
 from .definition_schema import DEFINITION_SCHEMA_SQL
 from .schema import SCHEMA_SQL
 from .workspace_schema import WORKSPACE_SCHEMA_SQL
@@ -38,6 +38,17 @@ _SCHEMA_STATEMENTS = (
 # DDL에서 테이블명을 추출해 둔다 — 목록을 따로 하드코딩하면 신규 테이블 추가 시 드리프트가 생긴다.
 _SCHEMA_TABLES = frozenset(
     re.findall(r"CREATE TABLE IF NOT EXISTS\s+(\w+)", "\n".join(_SCHEMA_STATEMENTS))
+)
+
+# 이미 존재하는 테이블에 컬럼을 덧붙이는 멱등 마이그레이션. CREATE TABLE IF NOT EXISTS는
+# 기존 테이블을 건드리지 않으므로, 신규 컬럼은 반드시 이 경로로 배선해야 한다.
+_MIGRATION_STATEMENTS = BACKTEST_MIGRATION_SQL
+
+_MIGRATION_COLUMNS = frozenset(
+    re.findall(
+        r"ALTER TABLE\s+(\w+)\s+ADD COLUMN IF NOT EXISTS\s+(\w+)",
+        "\n".join(_MIGRATION_STATEMENTS),
+    )
 )
 
 # 같은 프로세스 안에서 DDL 실행을 직렬화한다(아래 _ensure_schema 주석 참고).
@@ -72,11 +83,16 @@ class Database:
         """
         assert self._conn is not None
         for attempt in range(_SCHEMA_MAX_ATTEMPTS):
-            if not self._missing_tables():
+            missing_tables = self._missing_tables()
+            missing_columns = self._missing_columns()
+            if not missing_tables and not missing_columns:
                 return
             try:
                 with _SCHEMA_LOCK:
-                    for statement in _SCHEMA_STATEMENTS:
+                    if missing_tables:
+                        for statement in _SCHEMA_STATEMENTS:
+                            self._conn.execute(statement)
+                    for statement in _MIGRATION_STATEMENTS:
                         self._conn.execute(statement)
                 return
             except duckdb.TransactionException:
@@ -93,6 +109,18 @@ class Database:
             ).fetchall()
         }
         return set(_SCHEMA_TABLES) - existing
+
+    def _missing_columns(self) -> set[tuple[str, str]]:
+        """마이그레이션으로 추가돼야 하는 (테이블, 컬럼) 중 아직 없는 것."""
+        assert self._conn is not None
+        existing = {
+            (row[0], row[1])
+            for row in self._conn.execute(
+                "SELECT table_name, column_name FROM information_schema.columns"
+                " WHERE table_schema='main'"
+            ).fetchall()
+        }
+        return set(_MIGRATION_COLUMNS) - existing
 
     def close(self) -> None:
         if self._conn:
@@ -436,7 +464,7 @@ class Database:
     _BACKTEST_COLUMNS = (
         "run_id, cache_key, strategy_id, definition_hash, coverage_fingerprint, "
         "params, metrics, per_symbol, equity_curves, benchmark, benchmark_note, "
-        "errors, executed_at"
+        "errors, executed_at, is_portfolio, weights"
     )
 
     @staticmethod
@@ -445,6 +473,9 @@ class Database:
         record = dict(zip(keys, row, strict=True))
         for json_key in ("params", "metrics", "per_symbol", "equity_curves", "errors"):
             record[json_key] = json.loads(record[json_key])
+        # 마이그레이션 이전에 기록된 행은 두 컬럼이 NULL이다 — 종목별 모드로 해석한다.
+        record["is_portfolio"] = bool(record["is_portfolio"])
+        record["weights"] = json.loads(record["weights"]) if record["weights"] else {}
         return record
 
     def insert_backtest_run(self, record: dict) -> None:
@@ -452,7 +483,7 @@ class Database:
         with self.cursor() as conn:
             conn.execute(
                 f"INSERT OR REPLACE INTO backtest_runs ({self._BACKTEST_COLUMNS}) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     record["run_id"],
                     record["cache_key"],
@@ -467,6 +498,8 @@ class Database:
                     record.get("benchmark_note"),
                     json.dumps(record.get("errors", {})),
                     record["executed_at"],
+                    bool(record.get("is_portfolio", False)),
+                    json.dumps(record.get("weights", {})),
                 ],
             )
 

@@ -189,6 +189,44 @@ uv run python -m quant_krx screen-delete my_screen
 연산자/노드 종류는 [roadmap/EPIC_R03/](roadmap/EPIC_R03/)(PRD/TRD/DESIGN R03), 팩터 순위
 조건(FactorRankPredicate)과 실행 시점 증분 동기화는 [roadmap/EPIC_R04/](roadmap/EPIC_R04/) 참고.
 
+### 포트폴리오 백테스트
+
+전략 정의에 `portfolio` 슬롯을 넣으면 **자본을 공유하는 다종목 백테스트**로 실행됩니다.
+슬롯이 없으면 기존처럼 종목별 독립 백테스트가 수행됩니다(하위호환).
+
+```json
+{
+  "portfolio": {
+    "max_positions": 5,
+    "rebalance": "monthly",
+    "sizing": "equal_weight",
+    "initial_cash": 10000000,
+    "ranking": {
+      "kind": "factor", "factor_id": "roe", "column": "roe",
+      "params": {}, "descending": true
+    }
+  }
+}
+```
+
+| 필드 | 의미 |
+|---|---|
+| `max_positions` | 동시 보유 최대 종목 수 |
+| `rebalance` | `weekly` \| `monthly` \| `quarterly` — **거래는 각 주기의 첫 거래일에만** 발생 |
+| `sizing` | `equal_weight`(선택된 종목 수 k로 1/k씩 균등) |
+| `initial_cash` | 계좌 전체 초기 자본(종목마다가 아님) |
+| `ranking` | 진입 후보가 `max_positions`보다 많을 때 줄 세우는 기준. `kind`는 `factor` 또는 `formula`. 생략 시 종목코드 오름차순(결정론만 보장) |
+
+동작 규칙:
+- 리밸런싱 사이의 진입·청산 신호는 "보유 의도"로만 쌓이고, 실제 매매는 리밸런싱일에 반영됩니다.
+- 같은 날 진입·청산이 동시에 나오면 **청산이 우선**합니다(보수적 처리).
+- 랭킹 점수가 NaN인 종목은 후보에서 제외됩니다(데이터 없는 종목이 상위에 오르지 않도록).
+- 상장 전 등 가격 데이터가 없는 구간의 종목은 후보에서 빠집니다.
+- `ranking`이 참조하는 팩터도 `factor_refs`에 선언되어 있어야 저장됩니다(참조 무결성).
+
+결과는 계좌 전체 기준 지표와 자산 곡선으로 나오며, 자본을 공유하므로 **종목별 독립 성과
+(`per_symbol`)는 제공되지 않습니다**. CLI와 GUI 모두 리밸런싱일별 배분을 함께 보여줍니다.
+
 ### 백테스트 실행 이력 (`backtest-*`)
 
 `strategy-backtest`와 GUI 백테스트는 실행 결과(파라미터·지표·자산곡선)를 DuckDB

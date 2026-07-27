@@ -264,3 +264,102 @@ def test_list_backtest_runs_on_fresh_db_returns_empty(tmp_path) -> None:
     resp = client.get("/api/backtests/runs")
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+# --- 포트폴리오 모드 (P1) ---
+
+PORTFOLIO_STRATEGY_BODY = {
+    **STRATEGY_BODY,
+    "portfolio": {
+        "max_positions": 2,
+        "rebalance": "monthly",
+        "sizing": "equal_weight",
+        "initial_cash": 10_000_000,
+        "ranking": None,
+    },
+}
+_PORTFOLIO_RUN_BODY = {
+    "strategy_id": "pf_strategy",
+    "symbols": ["005930", "000660", "006400"],
+    "start": "2024-01-02",
+    "end": "2024-12-18",
+    "data_source": "fixture",
+}
+
+
+def _seed_portfolio_strategy(client: TestClient) -> None:
+    client.put("/api/rules/entry_rule", json=ENTRY_RULE)
+    client.put("/api/rules/exit_rule", json=EXIT_RULE)
+    resp = client.put("/api/strategies/pf_strategy", json=PORTFOLIO_STRATEGY_BODY)
+    assert resp.status_code in (200, 201), resp.text
+
+
+def test_portfolio_strategy_roundtrips_through_api(tmp_path) -> None:
+    client = _client(tmp_path)
+    _seed_portfolio_strategy(client)
+
+    body = client.get("/api/strategies/pf_strategy").json()
+    assert body["portfolio"]["max_positions"] == 2
+    assert body["portfolio"]["rebalance"] == "monthly"
+
+
+def test_portfolio_backtest_returns_portfolio_shape(tmp_path) -> None:
+    client = _client(tmp_path)
+    _seed_portfolio_strategy(client)
+
+    body = client.post("/api/backtests", json=_PORTFOLIO_RUN_BODY).json()
+
+    assert body["is_portfolio"] is True
+    assert body["per_symbol"] == {}, "자본 공유 모드에는 종목별 독립 성과가 없다"
+    assert list(body["results"]) == ["__portfolio__"]
+    assert body["weights"], "리밸런싱 배분이 응답에 포함되어야 한다"
+    for allocation in body["weights"].values():
+        assert len(allocation) <= 2
+
+
+def test_portfolio_run_history_preserves_mode(tmp_path) -> None:
+    """캐시로 복원해도 포트폴리오 모드와 배분이 유지되어야 한다."""
+    client = _client(tmp_path)
+    _seed_portfolio_strategy(client)
+
+    first = client.post("/api/backtests", json=_PORTFOLIO_RUN_BODY).json()
+    cached = client.post("/api/backtests", json=_PORTFOLIO_RUN_BODY).json()
+
+    assert cached["from_cache"] is True
+    assert cached["is_portfolio"] is True
+    assert cached["weights"] == first["weights"]
+
+    listed = client.get("/api/backtests/runs?strategy_id=pf_strategy").json()
+    assert listed[0]["is_portfolio"] is True
+    assert listed[0]["weights"] == first["weights"]
+
+
+def test_portfolio_policy_change_invalidates_cache(tmp_path) -> None:
+    """정책만 바꿔도 정의 지문이 달라져 재계산되어야 한다."""
+    client = _client(tmp_path)
+    _seed_portfolio_strategy(client)
+    first = client.post("/api/backtests", json=_PORTFOLIO_RUN_BODY).json()
+
+    changed = {
+        **PORTFOLIO_STRATEGY_BODY,
+        "portfolio": {**PORTFOLIO_STRATEGY_BODY["portfolio"], "max_positions": 3},
+    }
+    client.put("/api/strategies/pf_strategy", json=changed)
+    second = client.post("/api/backtests", json=_PORTFOLIO_RUN_BODY).json()
+
+    assert second["from_cache"] is False
+    assert second["run_id"] != first["run_id"]
+
+
+def test_invalid_portfolio_policy_rejected(tmp_path) -> None:
+    client = _client(tmp_path)
+    client.put("/api/rules/entry_rule", json=ENTRY_RULE)
+    client.put("/api/rules/exit_rule", json=EXIT_RULE)
+
+    bad = {
+        **STRATEGY_BODY,
+        "portfolio": {"max_positions": 0, "rebalance": "monthly",
+                      "sizing": "equal_weight", "initial_cash": 1000, "ranking": None},
+    }
+    resp = client.put("/api/strategies/bad_pf", json=bad)
+    assert resp.status_code >= 400

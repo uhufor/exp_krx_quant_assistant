@@ -35,6 +35,16 @@ import type { FactorOption } from '../tree/types'
 
 type FactorRefJSON = { factor_id: string; params: Record<string, number> }
 type RuleBindingJSON = { roles: { entry: string[]; exit: string[] } }
+type RankingJSON =
+  | { kind: 'factor'; factor_id: string; column: string; params: Record<string, number>; descending: boolean }
+  | { kind: 'formula'; formula_id: string; descending: boolean }
+type PortfolioJSON = {
+  max_positions: number
+  rebalance: 'weekly' | 'monthly' | 'quarterly'
+  sizing: 'equal_weight'
+  initial_cash: number
+  ranking: RankingJSON | null
+}
 type StrategyDoc = {
   id: string
   name: string
@@ -43,6 +53,15 @@ type StrategyDoc = {
   universe: { symbols: string[] }
   rule: RuleBindingJSON | null
   metadata: Record<string, unknown>
+  portfolio: PortfolioJSON | null
+}
+
+const DEFAULT_PORTFOLIO: PortfolioJSON = {
+  max_positions: 5,
+  rebalance: 'monthly',
+  sizing: 'equal_weight',
+  initial_cash: 10_000_000,
+  ranking: null,
 }
 
 type ValidationResult = { ok: boolean; errors: string[] }
@@ -57,6 +76,7 @@ function emptyDoc(id: string, factors: FactorOption[]): StrategyDoc {
     universe: { symbols: [] },
     rule: null, // 초안 — RuleBinding은 entry가 비어있으면 저장이 거부되므로 null(초안)이 유효한 기본값
     metadata: {},
+    portfolio: null, // 미설정 = 종목별 독립 백테스트(기존 동작)
   }
 }
 
@@ -66,6 +86,7 @@ export function StrategyBuilderPage() {
   const [refreshKey, setRefreshKey] = useState(0)
   const strategyIds = useResourceIds('strategies', refreshKey)
   const ruleIds = useResourceIds('rules', refreshKey)
+  const formulaIds = useResourceIds('formulas', refreshKey)
   const templates = useTemplates(refreshKey)
   const [selectedId, setSelectedId] = useState('')
   const [newId, setNewId] = useState('')
@@ -281,6 +302,13 @@ export function StrategyBuilderPage() {
               ruleIds={ruleIds}
             />
 
+            <PortfolioPolicyEditor
+              value={doc.portfolio}
+              onChange={(portfolio) => setDoc({ ...doc, portfolio })}
+              factors={factors}
+              formulaIds={formulaIds}
+            />
+
             <Group>
               <Button variant="default" onClick={handleValidate}>
                 저장 전 검증
@@ -364,6 +392,193 @@ export function StrategyBuilderPage() {
         </Paper>
       )}
     </Group>
+  )
+}
+
+/** 포트폴리오 정책(P1) — 미설정이면 기존 종목별 독립 백테스트가 유지된다. */
+function PortfolioPolicyEditor({
+  value,
+  onChange,
+  factors,
+  formulaIds,
+}: {
+  value: PortfolioJSON | null
+  onChange: (v: PortfolioJSON | null) => void
+  factors: FactorOption[]
+  formulaIds: string[]
+}) {
+  const enabled = value !== null
+  const policy = value ?? DEFAULT_PORTFOLIO
+  const update = (patch: Partial<PortfolioJSON>) => onChange({ ...policy, ...patch })
+  // 지역 변수로 받아야 판별 유니온 좁히기가 유지된다(policy.ranking?.kind로는 좁혀지지 않음).
+  const ranking = policy.ranking
+  const rankingKind = ranking?.kind ?? 'none'
+  const rankingFactor =
+    ranking?.kind === 'factor' ? factors.find((f) => f.id === ranking.factor_id) : undefined
+
+  const setRankingKind = (kind: string | null) => {
+    if (kind === 'factor') {
+      const first = factors[0]
+      update({
+        ranking: {
+          kind: 'factor',
+          factor_id: first?.id ?? '',
+          column: first?.output[0] ?? '',
+          params: {},
+          descending: true,
+        },
+      })
+    } else if (kind === 'formula') {
+      update({
+        ranking: { kind: 'formula', formula_id: formulaIds[0] ?? '', descending: true },
+      })
+    } else {
+      update({ ranking: null })
+    }
+  }
+
+  return (
+    <div>
+      <Group gap="xs" mb="xs">
+        <Title order={5}>포트폴리오(portfolio)</Title>
+        <Checkbox
+          label="자본 공유 포트폴리오 모드 사용"
+          checked={enabled}
+          onChange={(e) => onChange(e.currentTarget.checked ? DEFAULT_PORTFOLIO : null)}
+        />
+      </Group>
+      {!enabled ? (
+        <Text size="xs" c="dimmed">
+          미설정 시 종목별로 독립 백테스트를 수행합니다(각 종목이 자본 100%를 쓴다고 가정).
+        </Text>
+      ) : (
+        <Stack gap="xs">
+          <Group gap="xs" align="flex-end" wrap="wrap">
+            <NumberInput
+              label="최대 보유 종목"
+              min={1}
+              value={policy.max_positions}
+              onChange={(v) => update({ max_positions: Math.max(1, Number(v) || 1) })}
+              w={130}
+            />
+            <Select
+              label="리밸런싱 주기"
+              data={[
+                { value: 'weekly', label: '주간' },
+                { value: 'monthly', label: '월간' },
+                { value: 'quarterly', label: '분기' },
+              ]}
+              value={policy.rebalance}
+              onChange={(v) => update({ rebalance: (v as PortfolioJSON['rebalance']) ?? 'monthly' })}
+              w={130}
+            />
+            <Select
+              label="비중 배분"
+              data={[{ value: 'equal_weight', label: '균등 분배' }]}
+              value={policy.sizing}
+              onChange={() => undefined}
+              w={130}
+            />
+            <NumberInput
+              label="초기 자본(원)"
+              min={1}
+              step={1_000_000}
+              thousandSeparator=","
+              value={policy.initial_cash}
+              onChange={(v) => update({ initial_cash: Number(v) || 1 })}
+              w={180}
+            />
+          </Group>
+
+          <Group gap="xs" align="flex-end" wrap="wrap">
+            <Select
+              label="종목 선별 기준(후보가 최대 보유 수보다 많을 때)"
+              data={[
+                { value: 'none', label: '없음(종목코드 오름차순)' },
+                { value: 'factor', label: '팩터 값' },
+                { value: 'formula', label: '공식 값' },
+              ]}
+              value={rankingKind}
+              onChange={setRankingKind}
+              w={280}
+            />
+            {ranking?.kind === 'factor' && (
+              <>
+                <Select
+                  label="팩터"
+                  data={factors.map((f) => ({ value: f.id, label: `${f.display_name}(${f.id})` }))}
+                  value={ranking.factor_id}
+                  onChange={(id) => {
+                    const picked = factors.find((f) => f.id === id)
+                    update({
+                      ranking: {
+                        kind: 'factor',
+                        factor_id: id ?? '',
+                        column: picked?.output[0] ?? '',
+                        params: {},
+                        descending: ranking.descending,
+                      },
+                    })
+                  }}
+                  w={200}
+                />
+                <Select
+                  label="컬럼"
+                  data={rankingFactor?.output ?? []}
+                  value={ranking.column}
+                  onChange={(column) => update({ ranking: { ...ranking, column: column ?? '' } })}
+                  w={130}
+                />
+                {rankingFactor?.params.map((p) => (
+                  <NumberInput
+                    key={p.name}
+                    label={p.name}
+                    value={ranking.params[p.name] ?? p.default}
+                    onChange={(v) =>
+                      update({
+                        ranking: {
+                          ...ranking,
+                          params: { ...ranking.params, [p.name]: Number(v) || 0 },
+                        },
+                      })
+                    }
+                    w={90}
+                  />
+                ))}
+              </>
+            )}
+            {ranking?.kind === 'formula' && (
+              <Select
+                label="공식"
+                data={formulaIds}
+                value={ranking.formula_id}
+                onChange={(formula_id) =>
+                  update({ ranking: { ...ranking, formula_id: formula_id ?? '' } })
+                }
+                w={200}
+              />
+            )}
+            {ranking && (
+              <Select
+                label="정렬"
+                data={[
+                  { value: 'desc', label: '값이 큰 순' },
+                  { value: 'asc', label: '값이 작은 순' },
+                ]}
+                value={ranking.descending ? 'desc' : 'asc'}
+                onChange={(v) => update({ ranking: { ...ranking, descending: v !== 'asc' } })}
+                w={140}
+              />
+            )}
+          </Group>
+          {ranking?.kind === 'factor' && (
+            <Text size="xs" c="dimmed">
+              선별에 쓰는 팩터도 위 팩터 참조(factor_refs)에 선언되어 있어야 저장됩니다.
+            </Text>
+          )}
+        </Stack>
+      )}
+    </div>
   )
 }
 

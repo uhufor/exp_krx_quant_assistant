@@ -170,6 +170,22 @@ def _required_data_by_kind(
             for kind in metadata.required_data:
                 add(kind, factor_ref.factor_id)
 
+    # portfolio.ranking도 실행 시 평가되므로 데이터 요구를 함께 집계한다(P1) — 예: PBR 랭킹은
+    # valuation이 필요하고, 이를 빠뜨리면 수집 단계에서 데이터를 안 받아와 전 종목이 조용히
+    # 후보에서 탈락한다(NaN 점수 제외 규칙과 맞물려 결과가 빈 포트폴리오가 된다).
+    ranking = defn.portfolio.ranking if defn.portfolio is not None else None
+    if ranking is not None:
+        if ranking.kind == "factor":
+            metadata = _factor_metadata(ranking.factor_id)
+            if metadata is not None:
+                for kind in metadata.required_data:
+                    add(kind, ranking.factor_id)
+        elif ranking.kind == "formula":
+            formula = resolve_formula(ranking.formula_id)
+            if formula is not None:
+                for kind in derive_required_data(formula, resolve_formula):
+                    add(kind, ranking.formula_id)
+
     if defn.rule is not None:
         for rule_id in tuple(defn.rule.entry) + tuple(defn.rule.exit):
             rule = resolve_rule(rule_id)

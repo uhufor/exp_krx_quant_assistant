@@ -143,3 +143,66 @@ def test_backtest_compare_missing_run_fails_clearly(monkeypatch, tmp_path):
     assert result.exit_code != 0
     assert "no-such-run" in result.stdout
     assert "Traceback" not in result.stdout
+
+
+# --- 포트폴리오 모드 (P1) ---
+
+
+def _seed_portfolio(tmp_path, monkeypatch, **policy_kwargs) -> None:
+    from quant_krx.strategy.definition import PortfolioPolicy
+
+    db_path = tmp_path / "test.duckdb"
+    monkeypatch.setenv("DUCKDB_PATH", str(db_path))
+    db = Database(path=db_path)
+    db.connect()
+    svc = WorkspaceService(db)
+    svc.upsert_rule(
+        Rule(
+            id="entry_rule", name="entry", version="1",
+            root=Predicate(
+                FactorOperand("sma", "sma", {"window": 5}), ">",
+                FactorOperand("sma", "sma", {"window": 20}),
+            ),
+        ),
+        now=NOW,
+    )
+    svc.upsert_strategy(
+        StrategyDefinition(
+            id="pf_test", name="pf_test", version="1",
+            factor_refs=(FactorRef("sma", {"window": 5}), FactorRef("sma", {"window": 20})),
+            universe=Universe(symbols=("005930", "000660", "006400")),
+            rule=RuleBinding(entry=("entry_rule",)),
+            portfolio=PortfolioPolicy(**{"max_positions": 2, **policy_kwargs}),
+        ),
+        now=NOW,
+    )
+    db.close()
+
+
+def test_portfolio_backtest_cli_shows_mode_and_weights(monkeypatch, tmp_path):
+    _seed_portfolio(tmp_path, monkeypatch)
+    result = _backtest(strategy_id="pf_test")
+
+    assert result.exit_code == 0, result.stdout
+    assert "포트폴리오 모드" in result.stdout
+    assert "최대 2종목" in result.stdout
+    assert "리밸런싱 배분" in result.stdout
+
+
+def test_portfolio_backtest_cli_caches_like_per_symbol_mode(monkeypatch, tmp_path):
+    _seed_portfolio(tmp_path, monkeypatch)
+    _backtest(strategy_id="pf_test")
+    result = _backtest(strategy_id="pf_test")
+
+    assert "저장된 결과 재사용" in result.stdout
+    assert "리밸런싱 배분" in result.stdout, "캐시 복원에도 배분이 남아 있어야 한다"
+
+
+def test_backtest_show_reports_portfolio_mode(monkeypatch, tmp_path):
+    _seed_portfolio(tmp_path, monkeypatch)
+    run_id = _run_id_from(_backtest(strategy_id="pf_test").stdout)
+
+    result = runner.invoke(app, ["backtest-show", run_id])
+    assert result.exit_code == 0
+    assert "포트폴리오" in result.stdout
+    assert "리밸런싱 배분" in result.stdout
