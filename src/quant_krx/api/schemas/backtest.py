@@ -60,6 +60,10 @@ def serialize_backtest_report(report: BacktestReport) -> dict[str, Any]:
         "run_id": report.run_id,
         "executed_at": report.executed_at.isoformat() if report.executed_at else None,
         "from_cache": report.from_cache,
+        # 포트폴리오 모드(P1) — True면 results 키가 "__portfolio__" 하나뿐이고
+        # per_symbol은 비어 있다(자본 공유라 종목별 독립 성과가 정의되지 않음).
+        "is_portfolio": report.is_portfolio,
+        "weights": report.weights,
     }
 
 

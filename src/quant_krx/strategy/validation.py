@@ -93,6 +93,30 @@ def _transitive_factor_ids(
     errors: list[str] = []
     incomplete = False
     seen_formula_ids: set[str] = set()
+
+    # portfolio.ranking이 참조하는 factor/formula도 실행 시 실제로 평가되므로 전이 집합에
+    # 포함한다(P1). 빠뜨리면 ranking용 factor를 factor_refs에 선언했을 때 "잉여"로 거부되고,
+    # 선언하지 않으면 실행 시점에야 미존재가 드러난다(불변식 4: 참조 무결성은 저장 시점).
+    ranking = defn.portfolio.ranking if defn.portfolio is not None else None
+    if ranking is not None:
+        if ranking.kind == "factor":
+            acc.add(ranking.factor_id)
+        elif ranking.kind == "formula":
+            if resolve_formula is None:
+                incomplete = True
+            else:
+                seen_formula_ids.add(ranking.formula_id)
+                referenced = resolve_formula(ranking.formula_id)
+                if referenced is None:
+                    errors.append(
+                        f"portfolio.ranking이 미존재 formula_id '{ranking.formula_id}'을(를) "
+                        "참조하고 있습니다"
+                    )
+                else:
+                    acc |= _collect_formula_factor_ids(
+                        referenced, resolve_formula, seen_formula_ids
+                    )
+
     rule_ids = tuple(defn.rule.entry) + tuple(defn.rule.exit)
     for rule_id in rule_ids:
         rule = resolve_rule(rule_id)
@@ -131,6 +155,29 @@ def _validate_factor_ref(factor_ref: FactorRef, errors: list[str]) -> None:
         errors.append(str(exc))
 
 
+def _validate_ranking(defn: StrategyDefinition, errors: list[str]) -> None:
+    """portfolio.ranking이 참조하는 팩터의 존재·파라미터·컬럼을 저장 시점에 확인한다(P1)."""
+    ranking = defn.portfolio.ranking if defn.portfolio is not None else None
+    if ranking is None or ranking.kind != "factor":
+        return
+    metadata = next((m for m in list_factors() if m.id == ranking.factor_id), None)
+    if metadata is None:
+        available = ", ".join(m.id for m in list_factors()) or "(등록된 팩터 없음)"
+        errors.append(
+            f"portfolio.ranking의 미존재 factor_id '{ranking.factor_id}'. 사용 가능: {available}"
+        )
+        return
+    try:
+        get_factor(ranking.factor_id, **dict(ranking.params))
+    except (UnknownFactorError, ParamValidationError) as exc:
+        errors.append(f"portfolio.ranking: {exc}")
+    if ranking.column not in metadata.output:
+        errors.append(
+            f"portfolio.ranking의 factor '{ranking.factor_id}'에 컬럼 '{ranking.column}'이"
+            f" 없습니다. 사용 가능: {', '.join(metadata.output)}"
+        )
+
+
 def validate_definition(
     defn: StrategyDefinition,
     *,
@@ -147,6 +194,8 @@ def validate_definition(
 
     for factor_ref in defn.factor_refs:
         _validate_factor_ref(factor_ref, errors)
+
+    _validate_ranking(defn, errors)
 
     if defn.rule is not None and resolve_rule is not None:
         transitive, walk_errors, incomplete = _transitive_factor_ids(

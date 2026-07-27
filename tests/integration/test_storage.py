@@ -136,3 +136,41 @@ def test_concurrent_connect_on_fresh_db_does_not_conflict(tmp_path):
         assert verify._missing_tables() == set()
     finally:
         verify.close()
+
+
+def test_migration_adds_columns_to_existing_backtest_runs(tmp_path):
+    """P1 이전에 만들어진 backtest_runs에도 신규 컬럼이 멱등 적용되어야 한다.
+
+    CREATE TABLE IF NOT EXISTS는 기존 테이블의 컬럼을 늘려주지 않으므로, 이미 P3를
+    사용해 테이블이 생성된 DB에서 신규 컬럼 없이 조회하면 깨진다.
+    """
+    import duckdb
+
+    db_path = tmp_path / "legacy.duckdb"
+    conn = duckdb.connect(str(db_path))
+    conn.execute(
+        """CREATE TABLE backtest_runs (
+            run_id VARCHAR NOT NULL, cache_key VARCHAR NOT NULL, strategy_id VARCHAR NOT NULL,
+            definition_hash VARCHAR NOT NULL, coverage_fingerprint VARCHAR NOT NULL,
+            params JSON NOT NULL, metrics JSON NOT NULL, per_symbol JSON NOT NULL,
+            equity_curves JSON NOT NULL, benchmark VARCHAR, benchmark_note VARCHAR,
+            errors JSON NOT NULL, executed_at TIMESTAMP NOT NULL, PRIMARY KEY (run_id))"""
+    )
+    conn.execute(
+        "INSERT INTO backtest_runs VALUES ('legacy-run','k','s','d','c',"
+        "'{}','{\"total_return\":0.1}','{}','{}',NULL,NULL,'{}',?)",
+        [datetime(2026, 7, 20)],
+    )
+    conn.close()
+
+    db = Database(path=db_path)
+    db.connect()
+    try:
+        assert db._missing_columns() == set()
+        record = db.get_backtest_run("legacy-run")
+        assert record is not None
+        # 마이그레이션 이전 행은 NULL이므로 종목별 모드로 해석된다.
+        assert record["is_portfolio"] is False
+        assert record["weights"] == {}
+    finally:
+        db.close()

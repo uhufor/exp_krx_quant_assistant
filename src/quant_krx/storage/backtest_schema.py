@@ -23,3 +23,10 @@ CREATE TABLE IF NOT EXISTS backtest_runs (
     PRIMARY KEY (run_id)
 );
 """
+
+# 이미 backtest_runs가 만들어진 DB에도 신규 컬럼을 적용하기 위한 멱등 마이그레이션(P1).
+# CREATE TABLE IF NOT EXISTS는 기존 테이블의 컬럼을 늘려주지 않으므로 별도 경로가 필요하다.
+BACKTEST_MIGRATION_SQL = (
+    "ALTER TABLE backtest_runs ADD COLUMN IF NOT EXISTS is_portfolio BOOLEAN",
+    "ALTER TABLE backtest_runs ADD COLUMN IF NOT EXISTS weights JSON",
+)

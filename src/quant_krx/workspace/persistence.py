@@ -59,6 +59,8 @@ def build_run_record(
         "benchmark_note": report.benchmark_note,
         "errors": dict(report.errors),
         "executed_at": executed_at,
+        "is_portfolio": report.is_portfolio,
+        "weights": dict(report.weights),
     }
 
 
@@ -103,4 +105,6 @@ def restore_report(record: dict[str, Any]) -> BacktestReport:
         run_id=record["run_id"],
         executed_at=record["executed_at"],
         from_cache=True,
+        is_portfolio=bool(record.get("is_portfolio", False)),
+        weights=dict(record.get("weights") or {}),
     )

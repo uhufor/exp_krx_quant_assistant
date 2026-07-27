@@ -156,6 +156,25 @@ Pydantic Settings, `.env` 자동 로드. 네스티드 설정:
 
 **DART 재무제표 연동** (`roadmap/EPIC_R01/TRD-R01-D-DART_FINANCIALS.md`): `DartFundamentalAdapter.fetch_financials`는 opendart.fss.or.kr Open API로 재무제표 14계정을 실수집한다. 환경변수 `DART_API_KEY`(`.env`)가 필요하며 DART도 `os.getenv()`로 직접 읽는다(KRX_ID/PW와 동일 관례). 종목코드→`corp_code` 매핑은 `data/dart_corp_code.py`(`corpCode.xml` 로컬 캐시, 7일 경과 시 재다운로드), 계정 매핑은 `data/dart_account_mapping.py`(account_id 우선, account_nm 폴백)가 담당한다. 연결(CFS) 우선 → 별도(OFS) 폴백. `invested_capital`은 DART 원천 태그가 없는 파생 컬럼으로 `total_assets`를 그대로 대입한다. `fetch_valuation`은 DART가 제공하지 않는 시장 데이터라 `NotImplementedError` 유지(PyKrxFundamentalAdapter 사용). `strategy-backtest`/`screen-run`의 `--data-source`는 `fixture`(OHLCV+펀더멘털 전부 오프라인 합성) | `krx_dart`(OHLCV·밸류에이션=PyKrx, 재무제표=DART 조합 실데이터) 둘뿐이다 — `fdr`은 pykrx가 기능을 완전히 포괄해 제거됨(FDRAdapter 삭제). 증분 수집 시 API 호출 전 `_worth_attempting()`이 `[start,end]` 범위 밖(계산상 공시 불가능)인 분기를 걸러내고, "아직 미공시"로 확인된 분기는 `DartMissingPeriodCache`(`~/.cache/quant_krx/dart_missing_periods.parquet`)가 1시간 TTL로 재확인을 생략한다(TRD-R04 부록 — 재호출 버그 2건 수정).
 
+**포트폴리오 백테스트(P1)**: `StrategyDefinition.portfolio`(schema_version 2, additive)가 있으면
+`run_backtest`가 `run_portfolio_backtest`로 분기한다 — 없으면 기존 종목별 경로 그대로(하위호환).
+핵심은 `from_signals`가 아니라 **목표 비중 행렬 → `from_orders(size_type='targetpercent',
+cash_sharing=True, call_seq='auto')`** 라는 점이다(신호로는 "최대 N종목" 제약을 표현할 수 없음).
+비중 계산은 `workspace/portfolio.py`(순수, vectorbt 미import). 확정 규칙: 거래는 리밸런싱일에만 ·
+균등 분배는 선택 수 k 기준 1/k · 진입/청산 동시 발생 시 청산 우선 · 랭킹 NaN 종목 제외 ·
+동점은 종목코드 오름차순. 포트폴리오 모드 결과는 `results["__portfolio__"]` 하나뿐이고
+`per_symbol`은 빈 dict다(자본 공유라 종목별 독립 성과가 정의되지 않음).
+`portfolio.ranking`이 참조하는 factor/formula는 **factor_refs 일치 검사·활성 참조 보호·데이터
+계약 게이트 세 곳 모두에 배선되어 있다**(`strategy/validation.py`, `workspace/service.py::
+_transitive_closure`, `workspace/evaluation.py::_required_data_by_kind`) — 새 참조 슬롯을 추가할
+때 이 세 곳을 함께 고치지 않으면 저장은 되는데 실행에서 터지거나 조용히 빈 결과가 나온다.
+
+**스키마 마이그레이션**: `Database._ensure_schema()`는 누락 테이블이 있을 때만 DDL을 실행한다
+(요청마다 커넥션을 여는 GUI에서 동시 `CREATE TABLE`이 DuckDB 카탈로그 write-write 충돌을
+일으켰기 때문). 따라서 **기존 테이블에 컬럼을 추가할 때는 `CREATE TABLE` 수정이 아니라
+`BACKTEST_MIGRATION_SQL` 같은 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 목록에 넣어야 한다** —
+그러지 않으면 이미 테이블이 있는 DB에서는 영영 적용되지 않는다.
+
 **스크리닝 제약(EPIC-03)**: `screening/`은 `rule/`·`formula/`·`strategy/`·`workspace/evaluation.py`·
 `workspace/service.py`를 import하지 않는다(`workspace/numeric.py` leaf만 예외). 제외 필터 10종 중
 6종(관리종목/투자경고·위험/거래정지/정리매매/환기종목/불성실공시)과 `FormulaOperand`는

@@ -50,6 +50,9 @@ type BacktestReport = {
   run_id: string
   executed_at: string | null
   from_cache: boolean
+  // 포트폴리오 모드(P1) — results 키가 PORTFOLIO_KEY 하나뿐이고 per_symbol은 비어 있다.
+  is_portfolio: boolean
+  weights: Record<string, Record<string, number>>
 }
 
 // 결과 화면 전 영역 공통 — 소수점은 최대 5자리까지만 표시(요청사항).
@@ -234,7 +237,9 @@ export function BacktestPage() {
   }
 
   const result = report && selectedSymbol ? report.results[selectedSymbol] : null
-  const metrics = report && selectedSymbol ? report.per_symbol[selectedSymbol] : report?.metrics
+  // 포트폴리오 모드는 per_symbol이 비어 있으므로(자본 공유) 계좌 전체 지표로 폴백한다.
+  const metrics = (report && selectedSymbol ? report.per_symbol[selectedSymbol] : null) ??
+    report?.metrics
   const tradeColumns = result && result.trades.length > 0 ? Object.keys(result.trades[0]) : []
   const tradeMarkers = result ? buildTradeMarkers(result.trades) : []
   const chartData = result ? mergeCurves(result.equity_curve, result.price_curve) : []
@@ -338,7 +343,14 @@ export function BacktestPage() {
             </Alert>
           )}
 
-          {Object.keys(report.results).length > 1 && (
+          {report.is_portfolio && (
+            <Alert color="blue" title="포트폴리오 모드">
+              자본을 공유하는 다종목 백테스트입니다. 지표와 자산 곡선은 계좌 전체 기준이며,
+              종목별 독립 성과는 정의되지 않아 표시하지 않습니다.
+            </Alert>
+          )}
+
+          {!report.is_portfolio && Object.keys(report.results).length > 1 && (
             <Select
               label="종목"
               data={Object.keys(report.results)}
@@ -396,6 +408,56 @@ export function BacktestPage() {
                 withRightYAxis
                 rightYAxisLabel="주가"
               />
+            </Paper>
+          )}
+
+          {report.is_portfolio && Object.keys(report.weights).length > 0 && (
+            <Paper withBorder p="md" radius="md">
+              <Group justify="space-between" mb="sm">
+                <Title order={5}>리밸런싱 배분</Title>
+                <Badge variant="light">{Object.keys(report.weights).length}회</Badge>
+              </Group>
+              <ScrollArea.Autosize mah={320}>
+                <Table striped highlightOnHover withTableBorder>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>일자</Table.Th>
+                      <Table.Th>보유 종목 (비중)</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {Object.keys(report.weights)
+                      .sort()
+                      .reverse()
+                      .map((date) => {
+                        const allocation = report.weights[date]
+                        const entries = Object.entries(allocation).sort(([a], [b]) =>
+                          a.localeCompare(b),
+                        )
+                        return (
+                          <Table.Tr key={date}>
+                            <Table.Td>{date}</Table.Td>
+                            <Table.Td>
+                              {entries.length === 0 ? (
+                                <Text size="sm" c="dimmed">
+                                  보유 없음
+                                </Text>
+                              ) : (
+                                <Group gap="xs">
+                                  {entries.map(([symbol, weight]) => (
+                                    <Badge key={symbol} variant="light">
+                                      {symbol} {pct(weight)}
+                                    </Badge>
+                                  ))}
+                                </Group>
+                              )}
+                            </Table.Td>
+                          </Table.Tr>
+                        )
+                      })}
+                  </Table.Tbody>
+                </Table>
+              </ScrollArea.Autosize>
             </Paper>
           )}
 

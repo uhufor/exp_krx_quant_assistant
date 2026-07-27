@@ -134,4 +134,6 @@ def _serialize_run_summary(record: dict[str, Any]) -> dict[str, Any]:
         "definition_hash": record["definition_hash"],
         "coverage_fingerprint": record["coverage_fingerprint"],
         "executed_at": record["executed_at"].isoformat(),
+        "is_portfolio": record["is_portfolio"],
+        "weights": record["weights"],
     }
