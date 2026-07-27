@@ -1,40 +1,29 @@
 from __future__ import annotations
 
-import dataclasses
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
-from quant_krx.quant.base import BacktestMetrics
+# 직렬화 계약의 진실 원천은 workspace/serialization.py — 저장된 실행 이력(P3)과 GUI 응답이
+# 동일 포맷이어야 하므로 한 곳에 두고 여기서 재export한다(기존 import 경로 유지).
+from quant_krx.workspace.serialization import (
+    serialize_equity_curve,
+    serialize_metrics,
+)
+from quant_krx.workspace.serialization import (
+    to_json_safe as _to_json_safe,
+)
 
 if TYPE_CHECKING:
     from quant_krx.quant.base import BacktestResult as QuantBacktestResult
     from quant_krx.workspace.backtest import BacktestReport
 
-
-def _to_json_safe(value: Any) -> Any:
-    """pandas/numpy 스칼라를 JSON 직렬화 가능한 파이썬 네이티브 값으로 정규화.
-
-    순서 중요: Timestamp(날짜 문자열화) -> NaN/NaT(None) -> numpy 스칼라(.item()) -> passthrough.
-    """
-    if isinstance(value, pd.Timestamp):
-        return value.date().isoformat()
-    if pd.isna(value):
-        return None
-    if hasattr(value, "item"):  # numpy int64/float64/bool_
-        return value.item()
-    return value
-
-
-def serialize_metrics(metrics: BacktestMetrics) -> dict[str, Any]:
-    return {k: _to_json_safe(v) for k, v in dataclasses.asdict(metrics).items()}
-
-
-def serialize_equity_curve(series: pd.Series) -> list[dict[str, Any]]:
-    """DatetimeIndex pd.Series -> [{date, value}] (§5.1 TRD-R01 직렬화 계약)."""
-    return [
-        {"date": _to_json_safe(idx), "value": _to_json_safe(val)} for idx, val in series.items()
-    ]
+__all__ = [
+    "serialize_backtest_report",
+    "serialize_equity_curve",
+    "serialize_metrics",
+    "serialize_trades",
+]
 
 
 def _normalize_column(col: str) -> str:
@@ -67,6 +56,10 @@ def serialize_backtest_report(report: BacktestReport) -> dict[str, Any]:
         "benchmark": report.benchmark,
         "benchmark_note": report.benchmark_note,
         "errors": report.errors,
+        # 실행 이력(P3) — from_cache=True면 저장된 결과 복원이라 results[*].trades가 비어 있다.
+        "run_id": report.run_id,
+        "executed_at": report.executed_at.isoformat() if report.executed_at else None,
+        "from_cache": report.from_cache,
     }
 
 

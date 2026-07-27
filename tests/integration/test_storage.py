@@ -86,3 +86,53 @@ def test_log_event(tmp_db):
     with tmp_db.cursor() as conn:
         rows = conn.execute("SELECT * FROM run_events WHERE run_id='run-001'").fetchall()
     assert len(rows) == 1
+
+
+def test_schema_tables_all_created(tmp_path):
+    """DDL에 선언된 테이블이 connect() 후 모두 존재해야 한다(신규 테이블 배선 누락 방지)."""
+    from quant_krx.storage.db import _SCHEMA_TABLES
+
+    db = Database(path=tmp_path / "schema.duckdb")
+    db.connect()
+    try:
+        assert db._missing_tables() == set()
+        assert "backtest_runs" in _SCHEMA_TABLES
+    finally:
+        db.close()
+
+
+def test_concurrent_connect_on_fresh_db_does_not_conflict(tmp_path):
+    """빈 DB에 여러 커넥션이 동시에 붙어도 카탈로그 write-write 충돌이 나면 안 된다.
+
+    GUI는 요청마다 새 커넥션을 열어(api/deps.py::get_db) 최초 진입 시 병렬 요청이
+    동시에 스키마를 생성하려 한다 — 이때 DuckDB TransactionException으로 500이 났다.
+    """
+    import threading
+
+    db_path = tmp_path / "concurrent.duckdb"
+    errors: list[Exception] = []
+    barrier = threading.Barrier(8)
+
+    def _open() -> None:
+        db = Database(path=db_path)
+        try:
+            barrier.wait(timeout=10)  # 모든 스레드가 동시에 connect하도록 정렬
+            db.connect()
+            db.close()
+        except Exception as e:  # noqa: BLE001 — 실패 사유를 그대로 수집해 단언
+            errors.append(e)
+
+    threads = [threading.Thread(target=_open) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert errors == [], f"동시 connect 실패: {errors}"
+
+    verify = Database(path=db_path)
+    verify.connect()
+    try:
+        assert verify._missing_tables() == set()
+    finally:
+        verify.close()

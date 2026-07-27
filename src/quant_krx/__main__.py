@@ -433,8 +433,15 @@ def strategy_backtest_cmd(
     benchmark: str = typer.Option(
         None, "--benchmark", help="벤치마크 심볼/시장(예: KOSPI) — 상대 성과 함께 산출"
     ),
+    no_cache: bool = typer.Option(
+        False, "--no-cache", help="동일 조건의 저장된 결과가 있어도 무시하고 재계산"
+    ),
 ):
-    """선언형 전략을 백테스트하고 최소 지표 집합을 표로 표시한다."""
+    """선언형 전략을 백테스트하고 최소 지표 집합을 표로 표시한다.
+
+    실행 결과는 `backtest_runs`에 자동 기록되며(backtest-list로 조회), 정의·파라미터·데이터가
+    모두 동일한 직전 실행이 있으면 재계산 없이 저장된 결과를 복원한다(--no-cache로 강제 재계산).
+    """
     from datetime import date, datetime, timedelta
 
     from quant_krx.storage.db import Database
@@ -513,6 +520,7 @@ def strategy_backtest_cmd(
         report = svc.backtest(
             strategy_id, data=data, start=start_date, end=end_date,
             fees=fees, slippage=slippage, benchmark=benchmark_df,
+            data_source=data_source, benchmark_symbol=benchmark, use_cache=not no_cache,
         )
     except WorkspaceError as e:
         console.print(f"[red]백테스트 실패: {e}[/red]")
@@ -520,15 +528,27 @@ def strategy_backtest_cmd(
         raise typer.Exit(1) from e
     db.close()
 
+    if report.from_cache:
+        console.print(
+            f"[dim]저장된 결과 재사용(run_id={report.run_id}, "
+            f"실행 시각={report.executed_at:%Y-%m-%d %H:%M:%S}) — 재계산하려면 --no-cache[/dim]"
+        )
+    else:
+        console.print(f"[dim]실행 이력 저장됨: run_id={report.run_id}[/dim]")
+
     if report.errors:
         console.print("[yellow]일부 종목 제외됨:[/yellow]")
         for sym, msg in report.errors.items():
             console.print(f"  [yellow]{sym}: {msg}[/yellow]")
 
-    metrics = report.metrics
     title = f"백테스트: {strategy_id}"
     if len(sym_list) > 1:
         title += f" (대표 종목: {sym_list[0]}, 종목별 지표는 report.per_symbol 참조)"
+    console.print(_metrics_table(report.metrics, title))
+
+
+def _metrics_table(metrics, title: str) -> Table:
+    """BacktestMetrics 단일 지표 표 — strategy-backtest와 backtest-show가 공유(drift 방지)."""
     table = Table(title=title, show_lines=True)
     table.add_column("지표")
     table.add_column("값")
@@ -543,7 +563,159 @@ def strategy_backtest_cmd(
         table.add_row("초과수익률", f"{metrics.excess_return:.2%}")
     elif metrics.benchmark_note:
         table.add_row("벤치마크", metrics.benchmark_note)
+    return table
+
+
+def _open_workspace():
+    """WorkspaceService + 열린 Database 반환(backtest-* 조회 명령 공용)."""
+    from quant_krx.storage.db import Database
+    from quant_krx.workspace.service import WorkspaceService
+
+    settings = get_settings()
+    db = Database(settings.duckdb_path)
+    db.connect()
+    return db, WorkspaceService(db)
+
+
+def _fmt_pct(value) -> str:
+    return "N/A" if value is None or math.isnan(value) else f"{value:.2%}"
+
+
+def _fmt_num(value) -> str:
+    return "N/A" if value is None or math.isnan(value) else f"{value:.3f}"
+
+
+@app.command("backtest-list")
+def backtest_list_cmd(
+    strategy_id: str = typer.Option(None, "--strategy", help="특정 전략만 필터"),
+    limit: int = typer.Option(20, "--limit", help="최대 표시 건수(최근순)"),
+):
+    """저장된 백테스트 실행 이력을 최근순으로 표시한다."""
+    db, svc = _open_workspace()
+    records = svc.list_backtest_runs(strategy_id=strategy_id, limit=limit)
+    db.close()
+
+    if not records:
+        console.print("[yellow]저장된 백테스트 실행 이력이 없습니다[/yellow]")
+        return
+
+    # 컬럼을 7개로 제한한다 — 좁은 터미널에서 rich가 값을 잘라내면 run_id를 복사할 수 없어
+    # backtest-show/compare로 이어가지 못한다. 종목·수수료 등 상세는 backtest-show 담당.
+    table = Table(title="백테스트 실행 이력", show_lines=False)
+    for column in ("run_id", "전략", "기간", "총수익률", "MDD", "Sharpe", "실행시각"):
+        table.add_column(column)
+    for record in records:
+        params = record["params"]
+        metrics = record["metrics"]
+        table.add_row(
+            record["run_id"],
+            record["strategy_id"],
+            f"{params.get('start') or '?'}~{params.get('end') or '?'}",
+            _fmt_pct(metrics.get("total_return")),
+            _fmt_pct(metrics.get("mdd")),
+            _fmt_num(metrics.get("sharpe")),
+            f"{record['executed_at']:%Y-%m-%d %H:%M}",
+        )
     console.print(table)
+
+
+@app.command("backtest-show")
+def backtest_show_cmd(run_id: str = typer.Argument(..., help="조회할 백테스트 run_id")):
+    """저장된 백테스트 실행 1건의 파라미터와 지표를 표시한다."""
+    db, svc = _open_workspace()
+    record = svc.get_backtest_run_record(run_id)
+    db.close()
+
+    if record is None:
+        console.print(f"[red]run_id '{run_id}'을(를) 찾을 수 없습니다(backtest-list로 확인)[/red]")
+        raise typer.Exit(1)
+
+    params = record["params"]
+    info = Table(title=f"실행 정보: {run_id}", show_lines=False)
+    info.add_column("항목")
+    info.add_column("값")
+    info.add_row("전략", record["strategy_id"])
+    info.add_row("기간", f"{params.get('start') or '?'} ~ {params.get('end') or '?'}")
+    info.add_row("종목", ", ".join(params.get("symbols") or []) or "-")
+    info.add_row("데이터 소스", params.get("data_source") or "-")
+    info.add_row("수수료/슬리피지", f"{params.get('fees')} / {params.get('slippage')}")
+    info.add_row("벤치마크", params.get("benchmark") or "-")
+    info.add_row("실행 시각", f"{record['executed_at']:%Y-%m-%d %H:%M:%S}")
+    info.add_row("정의 지문", record["definition_hash"][:16])
+    info.add_row("데이터 지문", record["coverage_fingerprint"][:16])
+    console.print(info)
+
+    from quant_krx.workspace.serialization import deserialize_metrics
+
+    console.print(_metrics_table(deserialize_metrics(record["metrics"]), "전체 지표"))
+
+    if record["per_symbol"]:
+        per = Table(title="종목별 지표", show_lines=False)
+        for column in ("종목", "총수익률", "MDD", "Sharpe", "거래 횟수"):
+            per.add_column(column)
+        for symbol, raw in sorted(record["per_symbol"].items()):
+            sharpe = raw.get("sharpe")
+            per.add_row(
+                symbol,
+                _fmt_pct(raw.get("total_return")),
+                _fmt_pct(raw.get("mdd")),
+                "N/A" if sharpe is None else f"{sharpe:.3f}",
+                str(raw.get("trade_count") or 0),
+            )
+        console.print(per)
+
+    if record["errors"]:
+        console.print("[yellow]제외된 종목:[/yellow]")
+        for symbol, message in record["errors"].items():
+            console.print(f"  [yellow]{symbol}: {message}[/yellow]")
+
+
+@app.command("backtest-compare")
+def backtest_compare_cmd(
+    run_ids: list[str] = typer.Argument(..., help="비교할 run_id 2개 이상"),
+):
+    """저장된 백테스트 실행 2건 이상의 지표를 나란히 비교한다."""
+    if len(run_ids) < 2:
+        console.print("[red]비교하려면 run_id를 2개 이상 지정하십시오[/red]")
+        raise typer.Exit(1)
+
+    db, svc = _open_workspace()
+    records = [(run_id, svc.get_backtest_run_record(run_id)) for run_id in run_ids]
+    db.close()
+
+    missing = [run_id for run_id, record in records if record is None]
+    if missing:
+        console.print(f"[red]찾을 수 없는 run_id: {', '.join(missing)}[/red]")
+        raise typer.Exit(1)
+
+    rows = [
+        ("전략", lambda r: r["strategy_id"]),
+        ("기간", lambda r: f"{r['params'].get('start') or '?'}~{r['params'].get('end') or '?'}"),
+        ("소스", lambda r: r["params"].get("data_source") or "-"),
+        ("종목수", lambda r: str(len(r["params"].get("symbols") or []))),
+        ("총수익률", lambda r: _fmt_pct(r["metrics"].get("total_return"))),
+        ("초과수익률", lambda r: _fmt_pct(r["metrics"].get("excess_return"))),
+        ("MDD", lambda r: _fmt_pct(r["metrics"].get("mdd"))),
+        ("Sharpe", lambda r: _fmt_num(r["metrics"].get("sharpe"))),
+        ("Sortino", lambda r: _fmt_num(r["metrics"].get("sortino"))),
+        ("승률", lambda r: _fmt_pct(r["metrics"].get("win_rate"))),
+        ("거래 횟수", lambda r: str(r["metrics"].get("trade_count") or 0)),
+        ("정의 지문", lambda r: r["definition_hash"][:12]),
+        ("데이터 지문", lambda r: r["coverage_fingerprint"][:12]),
+        ("실행 시각", lambda r: f"{r['executed_at']:%Y-%m-%d %H:%M}"),
+    ]
+
+    table = Table(title="백테스트 비교", show_lines=True)
+    table.add_column("항목")
+    for run_id, _ in records:
+        table.add_column(run_id)
+    for label, extract in rows:
+        table.add_row(label, *[extract(record) for _, record in records])
+    console.print(table)
+
+    definition_hashes = {record["definition_hash"] for _, record in records}
+    if len(definition_hashes) == 1:
+        console.print("[dim]정의 지문이 동일합니다 — 전략 정의는 같고 실행 조건만 다릅니다[/dim]")
 
 
 @app.command("formula-create")
