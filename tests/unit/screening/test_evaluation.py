@@ -11,6 +11,7 @@ from quant_krx.screening.definition import (
     Composition,
     ConstantOperand,
     FactorOperand,
+    FactorRankPredicate,
     FormulaOperand,
     Predicate,
     RankPredicate,
@@ -23,6 +24,7 @@ from quant_krx.screening.evaluation import (
     _eval_screening_node,
     default_factor_lookback_resolver,
     estimate_required_lookback,
+    extract_factor_rank_predicates,
     extract_rank_predicates,
     tree_requires_ohlcv,
 )
@@ -239,6 +241,70 @@ def test_rank_predicate_missing_from_membership_raises(ohlcv) -> None:
         _eval_screening_node(node, ctx)
 
 
+# --- FactorRankPredicate는 트리 순회 평가에서 거부/조회 -------------------------
+
+
+def test_factor_rank_predicate_rejected_when_membership_absent(ohlcv) -> None:
+    node = FactorRankPredicate(factor_id="roic", column="roic", rank_metric="desc", top_n=10)
+    with pytest.raises(ScreeningError, match="FactorRankPredicate"):
+        _eval_screening_node(node, _ctx(ohlcv))
+
+
+def test_factor_rank_predicate_resolved_from_membership(ohlcv) -> None:
+    node = FactorRankPredicate(factor_id="roic", column="roic", rank_metric="desc", top_n=10)
+
+    passing_ctx = ScreeningEvaluationContext(
+        ohlcv=ohlcv, index=ohlcv.index, rank_membership={node: {"005930"}}, current_symbol="005930"
+    )
+    passing = _eval_screening_node(node, passing_ctx)
+    assert passing.dtype == bool
+    assert passing.all()
+    assert len(passing) == len(ohlcv.index)
+
+    failing_ctx = ScreeningEvaluationContext(
+        ohlcv=ohlcv, index=ohlcv.index, rank_membership={node: {"000660"}}, current_symbol="005930"
+    )
+    failing = _eval_screening_node(node, failing_ctx)
+    assert not failing.any()
+
+
+def test_factor_rank_predicate_missing_from_membership_raises(ohlcv) -> None:
+    node = FactorRankPredicate(factor_id="roic", column="roic", rank_metric="desc", top_n=10)
+    other = FactorRankPredicate(
+        factor_id="debt_to_equity", column="debt_to_equity", rank_metric="asc", top_n=5
+    )
+    ctx = ScreeningEvaluationContext(
+        ohlcv=ohlcv, index=ohlcv.index, rank_membership={other: set()}, current_symbol="005930"
+    )
+    with pytest.raises(ScreeningError, match="rank_membership"):
+        _eval_screening_node(node, ctx)
+
+
+def test_factor_rank_predicate_does_not_collide_with_rank_predicate(ohlcv) -> None:
+    """동일 필드값이라도 클래스가 다르면 rank_membership dict에서 서로 다른 키로 조회된다."""
+    rank_node = RankPredicate(factor_id="f", column="close", rank_metric="desc", top_n=10)
+    factor_rank_node = FactorRankPredicate(
+        factor_id="f", column="close", rank_metric="desc", top_n=10
+    )
+    ctx = ScreeningEvaluationContext(
+        ohlcv=ohlcv, index=ohlcv.index,
+        rank_membership={rank_node: {"005930"}, factor_rank_node: set()},
+        current_symbol="005930",
+    )
+    assert _eval_screening_node(rank_node, ctx).all()
+    assert not _eval_screening_node(factor_rank_node, ctx).any()
+
+
+def test_extract_factor_rank_predicates_finds_nested_nodes() -> None:
+    node = FactorRankPredicate(factor_id="roic", column="roic", rank_metric="desc", top_n=10)
+    other = FactorRankPredicate(
+        factor_id="debt_to_equity", column="debt_to_equity", rank_metric="asc", top_n=5
+    )
+    window = WindowPredicate(inner=other, n_bars=3, include_current_bar=True)
+    tree = Composition(op="AND", operands=(node, window))
+    assert extract_factor_rank_predicates(tree) == [node, other]
+
+
 def test_formula_operand_rejected_in_leaf_evaluation(ohlcv) -> None:
     node = Predicate(
         left=FormulaOperand(formula_id="custom"),
@@ -288,6 +354,15 @@ def test_estimate_required_lookback_rank_predicate_is_zero() -> None:
     )
 
 
+def test_estimate_required_lookback_factor_rank_predicate_is_zero() -> None:
+    """FactorRankPredicate도 as-of 단일 시점 DB 조회만 쓰므로 이력이 필요 없다(TRD-R04 §4.4)."""
+    node = FactorRankPredicate(factor_id="roic", column="roic", top_n=10, rank_metric="desc")
+    assert (
+        estimate_required_lookback(node, factor_lookback_resolver=default_factor_lookback_resolver)
+        == 0
+    )
+
+
 def test_estimate_required_lookback_mixed_tree_ignores_rank_branch() -> None:
     """RankPredicate와 Predicate가 섞인 트리는 Predicate 쪽 lookback만 반영된다."""
     price_pred = Predicate(
@@ -308,6 +383,11 @@ def test_estimate_required_lookback_mixed_tree_ignores_rank_branch() -> None:
 
 def test_tree_requires_ohlcv_false_for_pure_rank_predicate() -> None:
     node = RankPredicate(factor_id="trading_value", column="trading_value", top_n=10, rank_metric="desc")
+    assert tree_requires_ohlcv(node) is False
+
+
+def test_tree_requires_ohlcv_false_for_pure_factor_rank_predicate() -> None:
+    node = FactorRankPredicate(factor_id="roic", column="roic", top_n=10, rank_metric="desc")
     assert tree_requires_ohlcv(node) is False
 
 

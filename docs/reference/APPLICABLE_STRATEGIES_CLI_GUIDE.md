@@ -4,18 +4,17 @@
 현재 `quant-krx` No-Code Strategy Workspace 구현으로 얼마나 재현할 수 있는지 판정하고,
 바로 실행 가능한 CLI 예제를 제공한다. **가능(✅) 판정을 받은 항목 전부**에 대해
 Rule/Formula/Strategy를 새로 작성·생성·검증·백테스트하는 전 과정을 예제로 담았다.
-모든 예제는 실제로 실행해 검증했다(005930 기준, `--data-source pykrx`는 KRX 로그인
+모든 예제는 실제로 실행해 검증했다(005930 기준, `--data-source krx_dart`는 KRX 로그인
 필요 — `.env`의 `KRX_ID`/`KRX_PW`).
 
 ## 판정 기준
 
 워크스페이스가 지원하는 것과 지원하지 않는 것을 코드 레벨에서 확인한 결과다.
 
-- **팩터 데이터 가용성**: `required_data=ohlcv` 팩터(가격·기술 7종)는 fdr/pykrx/fixture 모두
-  즉시 동작. `required_data=valuation` 팩터(밸류에이션 11종)는 PyKrx 로그인만 있으면
+- **팩터 데이터 가용성**: `required_data=ohlcv` 팩터(가격·기술 7종)는 `krx_dart`/`fixture`
+  모두 즉시 동작. `required_data=valuation` 팩터(밸류에이션 11종)는 PyKrx 로그인만 있으면
   실데이터 동작. `required_data=financials` 팩터(재무제표 14종 중 다수)는
-  `DartFundamentalAdapter`가 아직 Deferred라 **실데이터가 NaN으로 반환된다**
-  (`FixtureFundamentalAdapter`로만 테스트 가능, `CLAUDE.md` 참고).
+  `DART_API_KEY` 설정 시 `DartFundamentalAdapter`로 실데이터가 수집된다(`CLAUDE.md` 참고).
 - **Formula의 연산 범위**: `formula/definition.py`가 허용하는 연산은 사칙연산(`+ - * /`)과
   부호반전뿐이다(`workspace/numeric.py::binary_arith`). Rolling window·순위화 연산이
   Formula 자체에는 없다 — **이미 어떤 Factor가 계산해 내놓은 컬럼끼리 조합하는 것만
@@ -134,7 +133,7 @@ uv run python -m quant_krx rule-create deep_value_exit.json
 uv run python -m quant_krx strategy-create deep_value_strategy deep_value_strategy.json
 uv run python -m quant_krx strategy-validate deep_value_strategy
 uv run python -m quant_krx strategy-backtest deep_value_strategy \
-    --symbols 005930 --data-source pykrx --start 2021-01-01 --end 2026-07-19 --benchmark KOSPI
+    --symbols 005930 --data-source krx_dart --start 2021-01-01 --end 2026-07-19 --benchmark KOSPI
 ```
 
 검증 결과(005930, 2021-01-01~2026-07-19, pykrx 실데이터):
@@ -214,7 +213,7 @@ uv run python -m quant_krx rule-create high_dividend_exit.json
 uv run python -m quant_krx strategy-create high_dividend_strategy high_dividend_strategy.json
 uv run python -m quant_krx strategy-validate high_dividend_strategy
 uv run python -m quant_krx strategy-backtest high_dividend_strategy \
-    --symbols 005930 --data-source pykrx --start 2021-01-01 --end 2026-07-19 --benchmark KOSPI
+    --symbols 005930 --data-source krx_dart --start 2021-01-01 --end 2026-07-19 --benchmark KOSPI
 ```
 
 검증 결과: 총수익률 35.79%, MDD 36.78%, Sharpe 0.456, 승률 50.00%, 거래 횟수 2.
@@ -225,7 +224,7 @@ uv run python -m quant_krx strategy-backtest high_dividend_strategy \
 
 상승추세(종가 > 200일 이평)를 유지한 상태에서 RSI가 과매도(30) 구간에서
 반등할 때 진입하는, 추세추종과 평균회귀 타이밍을 결합한 전략. 순수 OHLCV
-팩터만 사용하므로 `fdr`/`pykrx`/`fixture` 어느 데이터소스로도 동작한다.
+팩터만 사용하므로 `krx_dart`/`fixture` 어느 데이터소스로도 동작한다.
 
 ### Rule 2종
 
@@ -290,7 +289,7 @@ uv run python -m quant_krx rule-create trend_pullback_exit.json
 uv run python -m quant_krx strategy-create trend_pullback_strategy trend_pullback_strategy.json
 uv run python -m quant_krx strategy-validate trend_pullback_strategy
 uv run python -m quant_krx strategy-backtest trend_pullback_strategy \
-    --symbols 005930 --data-source pykrx --start 2021-01-01 --end 2026-07-19 --benchmark KOSPI
+    --symbols 005930 --data-source krx_dart --start 2021-01-01 --end 2026-07-19 --benchmark KOSPI
 ```
 
 검증 결과: 총수익률 15.44%, MDD 9.59%, Sharpe 0.464, 승률 80.00%, 거래 횟수 5.
@@ -307,7 +306,7 @@ uv run python -m quant_krx strategy-template-list
 # → bollinger_band, ma_crossover, macd, momentum, rsi_breakout
 
 uv run python -m quant_krx strategy-create my_macd_clone --template macd
-uv run python -m quant_krx strategy-backtest my_macd_clone --symbols 005930 --data-source pykrx --benchmark KOSPI
+uv run python -m quant_krx strategy-backtest my_macd_clone --symbols 005930 --data-source krx_dart --benchmark KOSPI
 ```
 
 `strategy-show my_macd_clone`로 확인하면 `universe.symbols`가 빈 배열이므로
@@ -371,7 +370,7 @@ uv run python -m quant_krx rule-create golden_cross_50_200_exit.json
 uv run python -m quant_krx strategy-create golden_cross_50_200_strategy golden_cross_50_200_strategy.json
 uv run python -m quant_krx strategy-validate golden_cross_50_200_strategy
 uv run python -m quant_krx strategy-backtest golden_cross_50_200_strategy \
-    --symbols 005930 --data-source pykrx --start 2021-01-01 --end 2026-07-19 --benchmark KOSPI
+    --symbols 005930 --data-source krx_dart --start 2021-01-01 --end 2026-07-19 --benchmark KOSPI
 ```
 
 검증 결과: 총수익률 **288.10%**, MDD 33.04%, Sharpe 1.163, 승률 50.00%, 거래 횟수 2,
@@ -500,7 +499,7 @@ uv run python -m quant_krx rule-create low_vol_exit.json
 uv run python -m quant_krx strategy-create low_vol_strategy low_vol_strategy.json
 uv run python -m quant_krx strategy-validate low_vol_strategy
 uv run python -m quant_krx strategy-backtest low_vol_strategy \
-    --symbols 005930 --data-source pykrx --start 2024-07-01 --end 2026-06-30 --benchmark KOSPI
+    --symbols 005930 --data-source krx_dart --start 2024-07-01 --end 2026-06-30 --benchmark KOSPI
 ```
 
 검증 결과: 총수익률 93.23%, MDD 15.90%, Sharpe **1.853**(전체 예제 중 최고), 승률
@@ -512,10 +511,9 @@ uv run python -m quant_krx strategy-backtest low_vol_strategy \
 
 ## 예제 F — 피오트로스키 F-Score 근사 전략(#11)
 
-**⚠️ 현재는 Fixture 데이터로만 검증 가능**(`--data-source fixture`). `roa` 등 재무제표
-팩터는 `required_data=financials`인데 `DartFundamentalAdapter`가 Deferred라 pykrx로는
-NaN만 나온다. 아래 Rule/Formula/Strategy 정의 자체는 지금 만들어두면, DART 연동이
-코드로 추가되는 즉시 `--data-source`만 바꿔서 실데이터로 쓸 수 있다.
+`roa` 등 재무제표 팩터는 `required_data=financials`이며, `DART_API_KEY` 설정 시
+`--data-source krx_dart`로 실데이터가 수집된다(`DartFundamentalAdapter`). 키 미설정
+시에는 `--data-source fixture`로만 검증 가능(NaN 대신 합성 값으로 동작 확인).
 
 원 논문의 9개 이진 채점 대신, 카탈로그에 있는 6개 재무 팩터를 AND로 묶어
 "전부 통과해야 진입"하는 근사판이다(수익성 `roa`, 성장성 `revenue_growth`·

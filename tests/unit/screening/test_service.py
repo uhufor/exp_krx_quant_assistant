@@ -12,6 +12,7 @@ from quant_krx.screening.definition import (
     Composition,
     ConstantOperand,
     FactorOperand,
+    FactorRankPredicate,
     FormulaOperand,
     Predicate,
     RankPredicate,
@@ -149,6 +150,50 @@ def test_validate_condition_rank_predicate_unknown_factor(service) -> None:
     assert any("does_not_exist" in e for e in result.errors)
 
 
+def test_validate_condition_factor_rank_predicate_ok(service) -> None:
+    cond = ScreeningCondition(
+        id="factor_rank_ok",
+        name="재무 팩터 순위",
+        version="1",
+        universe=ScanUniverse(),
+        root=FactorRankPredicate(
+            factor_id="debt_to_equity", column="debt_to_equity", rank_metric="asc", top_n=10
+        ),
+    )
+    assert service.validate_condition(cond).ok
+
+
+def test_validate_condition_factor_rank_predicate_unknown_factor(service) -> None:
+    cond = ScreeningCondition(
+        id="factor_rank_bad",
+        name="미지 팩터",
+        version="1",
+        universe=ScanUniverse(),
+        root=FactorRankPredicate(
+            factor_id="does_not_exist", column="does_not_exist", rank_metric="asc", top_n=10
+        ),
+    )
+    result = service.validate_condition(cond)
+    assert not result.ok
+    assert any("does_not_exist" in e for e in result.errors)
+
+
+def test_validate_condition_factor_rank_predicate_rejects_ohlcv_factor(service) -> None:
+    """가격·기술 팩터(sma 등)는 FactorRankPredicate에서 거부된다(전용 노드가 아님)."""
+    cond = ScreeningCondition(
+        id="factor_rank_ohlcv",
+        name="OHLCV 팩터는 거부",
+        version="1",
+        universe=ScanUniverse(),
+        root=FactorRankPredicate(
+            factor_id="sma", column="sma", rank_metric="desc", top_n=10, params={"window": 20}
+        ),
+    )
+    result = service.validate_condition(cond)
+    assert not result.ok
+    assert any("OHLCV" in e for e in result.errors)
+
+
 def test_validate_condition_walks_nested_tree(service) -> None:
     cond = ScreeningCondition(
         id="nested",
@@ -171,6 +216,63 @@ def test_validate_condition_walks_nested_tree(service) -> None:
         ),
     )
     assert service.validate_condition(cond).ok
+
+
+# --- run() FactorRankPredicate 통합(TRD-R04 §4) -----------------------------------
+
+
+def test_run_evaluates_factor_rank_predicate_end_to_end(service, monkeypatch) -> None:
+    """FactorRankPredicate만으로 구성된 조건이 OHLCV 확보 없이(§0 전제) 재무 팩터로
+    순위를 매겨 통과 종목을 반환하는지 종단 검증한다. sync는 이미 시딩된 데이터를
+    건드리지 않도록(네트워크/DART 의존 없이) no-op으로 대체한다."""
+    from datetime import date
+
+    import pandas as pd
+
+    from quant_krx.data.upsert import upsert_fundamental
+    from quant_krx.screening import service as service_mod
+
+    monkeypatch.setattr(
+        service_mod, "sync_universe_fundamentals", lambda *args, **kwargs: None
+    )
+
+    as_of = date(2024, 12, 18)
+    # FixtureAdapter 5종목 중 3종목에만 재무데이터를 시딩 — 나머지 2종목은 자연 결측.
+    rows = [
+        {
+            "symbol": symbol, "fiscal_year": 2024, "fiscal_quarter": 2,
+            "statement_scope": "consolidated",
+            "revenue": 100.0, "gross_profit": 50.0, "operating_income": 30.0,
+            "net_income": 20.0, "pretax_income": 25.0, "income_tax": 5.0,
+            "total_assets": total_debt + 100.0, "total_debt": total_debt, "total_equity": 100.0,
+            "current_assets": 500.0, "current_liabilities": 200.0,
+            "operating_cash_flow": 40.0, "interest_expense": 2.0,
+            "depreciation_amortization": 10.0, "cash_and_equivalents": 100.0,
+            "invested_capital": total_debt + 100.0,
+            "period_end": date(2024, 6, 30), "disclosure_date": date(2024, 8, 14),
+        }
+        for symbol, total_debt in [("005930", 50.0), ("000660", 100.0), ("006400", 400.0)]
+    ]
+    frame = pd.DataFrame(rows).assign(source="dart", fetched_at=date.today())
+    with service._db.cursor() as conn:
+        upsert_fundamental(conn, "financial_statements", frame, as_of=as_of)
+
+    cond = ScreeningCondition(
+        id="factor_rank_run",
+        name="부채비율 낮은 순 상위 2",
+        version="1",
+        universe=ScanUniverse(market="KRX", exclusion_filters=frozenset()),
+        root=FactorRankPredicate(
+            factor_id="debt_to_equity", column="debt_to_equity", rank_metric="asc", top_n=2
+        ),
+    )
+    service.upsert_condition(cond, now=_NOW)
+
+    passed = service.run("factor_rank_run", as_of=as_of)
+    passed_symbols = {symbol for symbol, _, _ in passed}
+
+    # d/e: 005930=0.5(1위), 000660=1.0(2위), 006400=4.0(3위, 탈락). top_n=2 -> 상위 2종목만.
+    assert passed_symbols == {"005930", "000660"}
 
 
 # --- run() 미존재 조건 -----------------------------------------------------------

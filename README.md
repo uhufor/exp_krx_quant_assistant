@@ -159,9 +159,10 @@ uv run python -m quant_krx validate-config
 
 ### 노코드 스크리닝 (`screen-*`)
 
-팩터·순위(거래대금/거래량 Top-N)·시간창(최근 N봉 내 골든크로스 등) 조건을 조합한 JSON
-정의로 KRX 전 종목(watchlist 무관)을 스크리닝합니다. Daily 파이프라인과 독립적이며 실행
-결과는 저장되지 않습니다(조회 전용).
+팩터·순위(거래대금/거래량/종가 Top-N)·팩터 순위(재무제표/밸류에이션 팩터 기반 Top-N,
+`krx_dart` 사용 시 DART 재무제표 자동 증분 동기화)·시간창(최근 N봉 내 골든크로스 등)
+조건을 조합한 JSON 정의로 KRX 전 종목(watchlist 무관)을 스크리닝합니다. Daily
+파이프라인과 독립적이며 실행 결과는 저장되지 않습니다(조회 전용).
 
 ```bash
 # 조건 생성/전체교체 (JSON 파일 또는 '-'로 stdin)
@@ -184,8 +185,9 @@ uv run python -m quant_krx screen-edit my_screen my_screen_v2.json
 uv run python -m quant_krx screen-delete my_screen
 ```
 
-`--data-source`는 `fixture`(기본값) | `fdr` | `pykrx` 중 선택합니다. 조건 JSON 스키마와
-연산자/노드 종류는 [roadmap/EPIC_R03/](roadmap/EPIC_R03/)(PRD/TRD/DESIGN R03) 참고.
+`--data-source`는 `fixture`(기본값) | `krx_dart`(KRX+DART 실데이터) 중 선택합니다. 조건 JSON 스키마와
+연산자/노드 종류는 [roadmap/EPIC_R03/](roadmap/EPIC_R03/)(PRD/TRD/DESIGN R03), 팩터 순위
+조건(FactorRankPredicate)과 실행 시점 증분 동기화는 [roadmap/EPIC_R04/](roadmap/EPIC_R04/) 참고.
 
 ### GUI (웹 인터페이스)
 
@@ -330,8 +332,8 @@ No-Code Strategy Workspace를 로컬 1인용 웹 GUI로 제공. 상세 설계는
 
 ## 데이터 소스
 
-- **FinanceDataReader**: KRX/KOSPI/KOSDAQ 종목 목록 및 OHLCV
-- **PyKrx**: KRX/Naver 스크래핑 기반 OHLCV
+- **PyKrx**: KRX 스크래핑 기반 OHLCV/밸류에이션(종목 목록 포함)
+- **DART**: opendart.fss.or.kr Open API 기반 재무제표
 
 ## 주의사항
 

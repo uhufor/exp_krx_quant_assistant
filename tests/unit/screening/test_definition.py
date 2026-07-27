@@ -7,6 +7,7 @@ from quant_krx.screening.definition import (
     Composition,
     ConstantOperand,
     FactorOperand,
+    FactorRankPredicate,
     FormulaOperand,
     Predicate,
     RankPredicate,
@@ -70,6 +71,7 @@ def test_node_dispatch_roundtrip_all_node_types():
         _sample_predicate(),
         WindowPredicate(inner=_sample_predicate(), n_bars=0, include_current_bar=False),
         RankPredicate(factor_id="f", column="value", rank_metric="asc", top_n=1),
+        FactorRankPredicate(factor_id="roic", column="roic", rank_metric="desc", top_n=10),
         Composition(op="NOT", operands=(_sample_predicate(),)),
     ]
     for node in nodes:
@@ -104,6 +106,28 @@ def test_rank_predicate_rejects_bad_top_n(bad):
 def test_rank_predicate_rejects_bad_metric():
     with pytest.raises(MalformedDefinitionError):
         RankPredicate(factor_id="f", column="value", rank_metric="ascending", top_n=5)
+
+
+@pytest.mark.parametrize("bad", [0, -1, True, 2.0, "3"])
+def test_factor_rank_predicate_rejects_bad_top_n(bad):
+    with pytest.raises(MalformedDefinitionError):
+        FactorRankPredicate(factor_id="roic", column="roic", rank_metric="desc", top_n=bad)
+
+
+def test_factor_rank_predicate_rejects_bad_metric():
+    with pytest.raises(MalformedDefinitionError):
+        FactorRankPredicate(factor_id="roic", column="roic", rank_metric="ascending", top_n=5)
+
+
+def test_factor_rank_predicate_is_distinct_class_from_rank_predicate():
+    """동일 필드값이라도 클래스가 다르면 동등하지 않다(CanonicalEq type 체크) — 두 노드가
+    같은 rank_membership dict에 섞여도 키 충돌 없이 각자 조회됨을 보장한다(TRD-R04 §4.3)."""
+    rank = RankPredicate(factor_id="f", column="value", rank_metric="desc", top_n=10)
+    factor_rank = FactorRankPredicate(factor_id="f", column="value", rank_metric="desc", top_n=10)
+    assert rank != factor_rank
+    mapping = {rank: {"A"}, factor_rank: {"B"}}
+    assert mapping[rank] == {"A"}
+    assert mapping[factor_rank] == {"B"}
 
 
 # --- constant operand 경계 ------------------------------------------------

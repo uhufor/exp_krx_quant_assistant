@@ -2,6 +2,7 @@ import dataclasses
 import json
 import logging
 import math
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -52,7 +53,7 @@ def run_daily(
     ),
 ):
     """일일 퀀트 파이프라인 실행(활성 선언형 전략 집합 — strategy-activate로 제어)."""
-    from quant_krx.data.fdr_adapter import FDRAdapter
+    from quant_krx.data.pykrx_adapter import PyKrxAdapter
     from quant_krx.jobs.daily import DailyJob
     from quant_krx.storage.db import Database
 
@@ -60,7 +61,7 @@ def run_daily(
     db = Database(settings.duckdb_path)
     db.connect()
 
-    provider = FDRAdapter()
+    provider = PyKrxAdapter()
     notifier = None
 
     if not dry_run:
@@ -191,7 +192,7 @@ def validate_config():
 
     table.add_row("DuckDB Path", "✓", settings.duckdb_path)
     table.add_row("Report Dir", "✓", settings.report_dir)
-    table.add_row("Provider", "✓", settings.provider.primary)
+    table.add_row("Provider", "✓", "krx_dart (KRX+DART)")
     table.add_row("Watchlist", "✓" if ok else "✗", msg)
     table.add_row("LLM Mock", "✓" if settings.llm.mock else "—", str(settings.llm.mock))
 
@@ -306,10 +307,10 @@ def show_factor_cmd(factor_id: str = typer.Argument(..., help="조회할 팩터 
 
     console.print(table)
 
-    if "financials" in meta.required_data:
+    if "financials" in meta.required_data and not os.getenv("DART_API_KEY"):
         console.print(
-            "[yellow]참고: DART 재무제표 연동은 아직 구현되지 않았습니다(Deferred). "
-            "현재는 값이 NaN으로 반환됩니다.[/yellow]"
+            "[yellow]참고: DART_API_KEY가 설정되지 않았습니다. "
+            "재무제표 미수집 시 값은 NaN으로 반환됩니다.[/yellow]"
         )
 
 
@@ -324,12 +325,13 @@ def fetch_fundamental_cmd(
         "all", "--kind", "-k", help="수집 종류: valuation | financials | all"
     ),
     provider: str = typer.Option(
-        "fixture", "--provider", "-p", help="데이터 제공자: fixture | pykrx"
+        "fixture", "--provider", "-p", help="데이터 제공자: fixture | pykrx | dart"
     ),
 ):
     """밸류에이션/재무제표 데이터를 수집해 DuckDB에 저장한다 (멱등)."""
     from datetime import date, datetime, timedelta
 
+    from quant_krx.data.dart_fundamental import DartFundamentalAdapter
     from quant_krx.data.fixture_fundamental import FixtureFundamentalAdapter
     from quant_krx.data.pykrx_fundamental import PyKrxFundamentalAdapter
     from quant_krx.data.upsert import upsert_fundamental
@@ -340,8 +342,15 @@ def fetch_fundamental_cmd(
             f"[red]알 수 없는 --kind '{kind}'. 사용 가능: valuation, financials, all[/red]"
         )
         raise typer.Exit(1)
-    if provider not in ("fixture", "pykrx"):
-        console.print(f"[red]알 수 없는 --provider '{provider}'. 사용 가능: fixture, pykrx[/red]")
+    if provider not in ("fixture", "pykrx", "dart"):
+        console.print(
+            f"[red]알 수 없는 --provider '{provider}'. 사용 가능: fixture, pykrx, dart[/red]"
+        )
+        raise typer.Exit(1)
+    if provider == "dart" and kind == "valuation":
+        console.print(
+            "[red]DART는 밸류에이션을 지원하지 않습니다. --kind financials를 사용하십시오.[/red]"
+        )
         raise typer.Exit(1)
 
     settings = get_settings()
@@ -358,7 +367,16 @@ def fetch_fundamental_cmd(
     )
     as_of = date.today()
 
-    adapter = FixtureFundamentalAdapter() if provider == "fixture" else PyKrxFundamentalAdapter()
+    try:
+        if provider == "fixture":
+            adapter = FixtureFundamentalAdapter()
+        elif provider == "dart":
+            adapter = DartFundamentalAdapter()
+        else:
+            adapter = PyKrxFundamentalAdapter()
+    except RuntimeError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1) from e
 
     db = Database(settings.duckdb_path)
     db.connect()
@@ -370,7 +388,7 @@ def fetch_fundamental_cmd(
     table.add_column("제외 사유(일부)")
 
     with db.cursor() as conn:
-        if kind in ("valuation", "all"):
+        if kind in ("valuation", "all") and provider != "dart":
             try:
                 frame = adapter.fetch_valuation(sym_list, start_date, end_date)
             except (NotImplementedError, RuntimeError) as e:
@@ -384,7 +402,7 @@ def fetch_fundamental_cmd(
         if kind in ("financials", "all"):
             try:
                 frame = adapter.fetch_financials(sym_list, start_date, end_date)
-            except NotImplementedError as e:
+            except (NotImplementedError, RuntimeError) as e:
                 console.print(f"[red]{e}[/red]")
                 raise typer.Exit(1) from e
             frame = frame.assign(source=adapter.source_name, fetched_at=datetime.utcnow())
@@ -394,6 +412,9 @@ def fetch_fundamental_cmd(
 
     console.print(table)
     db.close()
+    close = getattr(adapter, "close", None)
+    if callable(close):
+        close()
 
 
 @app.command("strategy-backtest")
@@ -407,7 +428,7 @@ def strategy_backtest_cmd(
     fees: float = typer.Option(0.003, "--fees"),
     slippage: float = typer.Option(0.001, "--slippage"),
     data_source: str = typer.Option(
-        "fixture", "--data-source", help="데이터 소스: fixture | fdr | pykrx"
+        "fixture", "--data-source", help="데이터 소스: fixture | krx_dart(KRX+DART 실데이터)"
     ),
     benchmark: str = typer.Option(
         None, "--benchmark", help="벤치마크 심볼/시장(예: KOSPI) — 상대 성과 함께 산출"
@@ -421,7 +442,7 @@ def strategy_backtest_cmd(
     from quant_krx.workspace.errors import WorkspaceError
     from quant_krx.workspace.service import WorkspaceService
 
-    if data_source not in ("fixture", "fdr", "pykrx"):
+    if data_source not in ("fixture", "krx_dart"):
         console.print(f"[red]알 수 없는 --data-source '{data_source}'[/red]")
         raise typer.Exit(1)
 
@@ -472,12 +493,16 @@ def strategy_backtest_cmd(
         data_errors[sym] = str(exc)
         console.print(f"[yellow]종목 '{sym}' 데이터 조립 실패(건너뛰고 계속): {exc}[/yellow]")
 
+    def _warn_fundamental_failure(label: str, exc: Exception) -> None:
+        console.print(f"[yellow]펀더멘털 수집 실패({label}, 건너뛰고 계속): {exc}[/yellow]")
+
     data, benchmark_df = prepare_backtest_data(
         db, defn, sym_list,
         data_source=data_source, start=start_date, end=end_date, benchmark=benchmark,
         resolve_rule=svc.get_rule, resolve_formula=svc.get_formula,
         on_benchmark_warning=_warn_benchmark_failure,
         on_symbol_error=_warn_symbol_failure,
+        on_fundamental_warning=_warn_fundamental_failure,
     )
     if not data:
         console.print("[red]모든 종목의 데이터 조립이 실패했습니다[/red]")
@@ -1022,7 +1047,7 @@ def screen_run_cmd(
     condition_id: str = typer.Argument(..., help="실행할 스크리닝 조건 id"),
     as_of: str = typer.Option(None, "--as-of", help="기준일(YYYY-MM-DD, 생략 시 오늘)"),
     data_source: str = typer.Option(
-        "fixture", "--data-source", help="데이터 소스: fixture | fdr | pykrx"
+        "fixture", "--data-source", help="데이터 소스: fixture | krx_dart(KRX+DART 실데이터)"
     ),
 ):
     """스크리닝 조건을 실행해 통과 종목(코드+이름)을 rich 표로 출력한다(저장 없음)."""
@@ -1032,7 +1057,7 @@ def screen_run_cmd(
 
     from quant_krx.screening.errors import ScreeningError
 
-    if data_source not in ("fixture", "fdr", "pykrx"):
+    if data_source not in ("fixture", "krx_dart"):
         console.print(f"[red]알 수 없는 --data-source '{data_source}'[/red]")
         raise typer.Exit(1)
 

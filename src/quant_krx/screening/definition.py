@@ -239,6 +239,58 @@ class RankPredicate(CanonicalEq):
 
 
 @dataclass(frozen=True, eq=False)
+class FactorRankPredicate(CanonicalEq):
+    """재무제표/밸류에이션 팩터 값 기준 횡단면 순위(TRD-R04 §4) — OHLCV 시계열이 불필요한
+    팩터 전용(가격·기술 팩터는 required_data에 ohlcv가 포함되어 이 노드에서 거부됨,
+    service.py::_collect_validation_errors 참고).
+
+    `RankPredicate`(시장 스냅샷 네이티브 컬럼 close/volume/trading_value 전용)와 필드
+    형상은 같지만 평가 데이터 경로가 근본적으로 다르므로(스냅샷 1콜 vs 종목별 DB 조회)
+    별개 클래스·node 태그로 분리한다(PRD-R03 D3 연장).
+    """
+
+    factor_id: str
+    column: str
+    rank_metric: str
+    top_n: int
+    params: Mapping[str, Any] = field(default_factory=dict)
+    node: ClassVar[str] = "factor_rank_predicate"
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "params", normalize_mapping(dict(self.params)))
+        if self.rank_metric not in _RANK_METRICS:
+            raise MalformedDefinitionError(
+                f"미지의 rank_metric '{self.rank_metric}'(허용: {sorted(_RANK_METRICS)})"
+            )
+        if isinstance(self.top_n, bool) or not isinstance(self.top_n, int):
+            raise MalformedDefinitionError(
+                f"top_n은 정수여야 합니다(입력 타입: {type(self.top_n).__name__})"
+            )
+        if self.top_n < 1:
+            raise MalformedDefinitionError(f"top_n은 1 이상이어야 합니다(입력: {self.top_n})")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "node": self.node,
+            "factor_id": self.factor_id,
+            "column": self.column,
+            "rank_metric": self.rank_metric,
+            "top_n": self.top_n,
+            "params": dict(self.params),
+        }
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> FactorRankPredicate:
+        return cls(
+            factor_id=d["factor_id"],
+            column=d["column"],
+            rank_metric=d["rank_metric"],
+            top_n=d["top_n"],
+            params=d.get("params", {}),
+        )
+
+
+@dataclass(frozen=True, eq=False)
 class Composition(CanonicalEq):
     op: str
     operands: tuple[Node, ...]
@@ -275,7 +327,7 @@ class Composition(CanonicalEq):
         return cls(op=d["op"], operands=tuple(node_from_dict(n) for n in operands_raw))
 
 
-Node = Predicate | WindowPredicate | RankPredicate | Composition
+Node = Predicate | WindowPredicate | RankPredicate | FactorRankPredicate | Composition
 
 
 @dataclass(frozen=True, eq=False)

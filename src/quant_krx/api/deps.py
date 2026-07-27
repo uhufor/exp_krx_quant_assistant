@@ -28,19 +28,15 @@ def get_workspace_service(db: Database = Depends(get_db)) -> WorkspaceService:
     return WorkspaceService(db)
 
 
-def get_data_provider(settings: Settings = Depends(get_settings)) -> DataProvider:
-    """settings.provider.primary("fdr"|"pykrx")로 OHLCV 어댑터를 선택한다.
+def get_data_provider() -> DataProvider:
+    """실데이터 OHLCV 어댑터(KRX/pykrx 고정)를 반환한다.
 
     무거운 provider는 lazy import(_ohlcv_provider_for와 동일 관례). 테스트는 이 의존성을
     dependency_overrides로 FixtureAdapter로 치환한다(TestClient 오프라인 실행).
     """
-    if settings.provider.primary == "pykrx":
-        from quant_krx.data.pykrx_adapter import PyKrxAdapter
+    from quant_krx.data.pykrx_adapter import PyKrxAdapter
 
-        return PyKrxAdapter()
-    from quant_krx.data.fdr_adapter import FDRAdapter
-
-    return FDRAdapter()
+    return PyKrxAdapter()
 
 
 def get_screening_service(

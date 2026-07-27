@@ -181,7 +181,7 @@ export function BacktestPage() {
   const [strategyIds, setStrategyIds] = useState<string[]>([])
   const [strategyId, setStrategyId] = useState<string | null>(null)
   const [symbols, setSymbols] = useState('')
-  const [dataSource, setDataSource] = useState<'fixture' | 'fdr' | 'pykrx'>('fixture')
+  const [dataSource, setDataSource] = useState<'fixture' | 'krx_dart'>('fixture')
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
   const [benchmark, setBenchmark] = useState('')
@@ -249,7 +249,7 @@ export function BacktestPage() {
           />
           <Select
             label="데이터소스"
-            data={['fixture', 'fdr', 'pykrx']}
+            data={['fixture', 'krx_dart']}
             value={dataSource}
             onChange={(v) => setDataSource((v as typeof dataSource) ?? 'fixture')}
             w={110}

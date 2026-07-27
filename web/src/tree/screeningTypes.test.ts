@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { FactorOption } from './types'
 import {
+  defaultFactorRankPredicate,
   defaultScreeningPredicate,
+  factorRankEligibleFactors,
   nextCompositionOperands,
   type ScreeningCompositionJSON,
 } from './screeningTypes'
@@ -12,6 +14,25 @@ const PRICE: FactorOption = {
   category: 'price',
   output: ['close'],
   params: [],
+  required_data: ['ohlcv'],
+}
+
+const ROIC: FactorOption = {
+  id: 'roic',
+  display_name: 'ROIC',
+  category: 'quality',
+  output: ['roic'],
+  params: [],
+  required_data: ['financials'],
+}
+
+const PER: FactorOption = {
+  id: 'per',
+  display_name: 'PER',
+  category: 'value',
+  output: ['per'],
+  params: [],
+  required_data: ['valuation'],
 }
 
 describe('nextCompositionOperands', () => {
@@ -41,5 +62,36 @@ describe('nextCompositionOperands', () => {
     const result = nextCompositionOperands('AND', predicate, [PRICE])
     expect(result).toHaveLength(2)
     expect(result[0]).not.toBe(predicate)
+  })
+})
+
+describe('factorRankEligibleFactors', () => {
+  it('required_data에 ohlcv가 포함된 팩터(가격·기술)는 제외한다', () => {
+    const result = factorRankEligibleFactors([PRICE, ROIC, PER])
+    expect(result).toEqual([ROIC, PER])
+  })
+
+  it('빈 목록이면 빈 목록을 반환한다', () => {
+    expect(factorRankEligibleFactors([])).toEqual([])
+  })
+})
+
+describe('defaultFactorRankPredicate', () => {
+  it('OHLCV 불필요 팩터 중 첫 번째를 기본값으로 사용한다(가격·기술 팩터는 후보에서 제외)', () => {
+    const result = defaultFactorRankPredicate([PRICE, ROIC, PER])
+    expect(result).toEqual({
+      node: 'factor_rank_predicate',
+      factor_id: 'roic',
+      column: 'roic',
+      rank_metric: 'desc',
+      top_n: 10,
+      params: {},
+    })
+  })
+
+  it('후보 팩터가 하나도 없으면 빈 factor_id/column으로 초기화한다', () => {
+    const result = defaultFactorRankPredicate([PRICE])
+    expect(result.factor_id).toBe('')
+    expect(result.column).toBe('')
   })
 })
