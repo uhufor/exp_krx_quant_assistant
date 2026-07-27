@@ -125,7 +125,10 @@ def show_reports(
         console.print(f"[yellow]run_id={run_id} 에 해당하는 신호가 없습니다.[/yellow]")
         raise typer.Exit(0)
 
-    _SIGNAL_COLOR = {"buy": "green", "sell": "red", "watch": "yellow", "hold": "cyan"}
+    _SIGNAL_COLOR = {
+        "buy": "green", "sell": "red", "watch": "yellow",
+        "hold": "cyan", "rebalance": "magenta",
+    }
 
     summary = Table(title="신호 요약", show_lines=True)
     summary.add_column("종목", style="bold")
@@ -148,7 +151,7 @@ def show_reports(
         sharpe_str = f"{sharpe:.2f}" if not math.isnan(sharpe) else "N/A"
         color = _SIGNAL_COLOR.get(sig_type, "white")
         summary.add_row(
-            sym,
+            _display_signal_symbol(sym),
             strategy,
             f"[{color}]{sig_type.upper()}[/{color}]",
             f"{score:.2f}",
@@ -174,7 +177,10 @@ def show_reports(
             if row:
                 console.print(Panel(
                     Markdown(row[0]),
-                    title=f"[bold]{sym}[/bold] · {strategy} · Report {rtype}",
+                    title=(
+                        f"[bold]{_display_signal_symbol(sym)}[/bold] · {strategy}"
+                        f" · Report {rtype}"
+                    ),
                     border_style="dim",
                 ))
 
@@ -606,6 +612,13 @@ def _print_weights_table(weights: dict, limit: int = 12) -> None:
     console.print(table)
     if len(dates) > len(shown):
         console.print(f"[dim]... 총 {len(dates)}회 중 최근 {len(shown)}회만 표시[/dim]")
+
+
+def _display_signal_symbol(symbol: str) -> str:
+    """신호의 symbol 표시명 — 포트폴리오 신호(R05)의 의사 키를 사용자에게 노출하지 않는다."""
+    from quant_krx.reports.base import display_symbol
+
+    return display_symbol(symbol, {})
 
 
 def _metrics_table(metrics, title: str) -> Table:

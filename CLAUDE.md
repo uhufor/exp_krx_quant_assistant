@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | 축 | 범위 | 상태 |
 |---|---|---|
-| **데일리 어시스트** | `jobs/daily.py` → `signals/` → `reports/` → `notify/` (watchlist 기반 일일 리포트 + Telegram) | **1차 완성 · 홀딩**. 회귀만 방지하고 신규 기능은 추가하지 않는다. |
+| **데일리 어시스트** | `jobs/daily.py` → `signals/` → `reports/` → `notify/` (watchlist 기반 일일 리포트 + Telegram) | **1차 완성 · 홀딩**. 회귀만 방지하고 신규 기능은 추가하지 않는다. 예외는 **플랫폼 산출물을 소비하기 위한 배선**(R05 포트폴리오 리밸런싱 권고) — 데일리 고유 기능을 늘리는 것이 아니라 플랫폼이 만든 결과를 흘려보내는 작업이다. |
 | **퀀트 플랫폼** | `factors/` · `formula/` · `rule/` · `strategy/` · `workspace/` · `screening/` · `api/` · `web/` (노코드 전략 설계·백테스트·전종목 스크리닝·GUI) | **활성 개발**. 신규 작업은 기본적으로 이쪽이다. |
 
 작업 지시가 모호할 때는 플랫폼 축을 우선 가정하고, 데일리 파이프라인은 "플랫폼 산출물을
@@ -193,6 +193,15 @@ EPIC-03 D5(결과 미저장)를 반복 백테스트 비용 때문에 완화한 �
 `BACKTEST_MIGRATION_SQL` 같은 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 목록에 넣어야 한다** —
 그러지 않으면 이미 테이블이 있는 DB에서는 영영 적용되지 않는다.
 
+**데일리 × 포트폴리오(R05)**: `jobs/daily.py`는 전략마다 분기한다 — `portfolio`가 없으면 기존
+`run_single_symbol_backtest` 루프 그대로, 있으면 `run_backtest`로 계좌 단위 실행 후 **리밸런싱
+권고 신호 1건**을 낸다(`symbol=__portfolio__`, `SignalType.REBALANCE`는 열거 추가라 DDL 무변경).
+두 가지가 순서·의미상 중요하다. ① **동적 유니버스 계획은 OHLCV 수집보다 먼저** 세워야 한다
+— 안 그러면 `symbols`가 비어 `or watchlist`가 걸려 엉뚱한 종목이 조용히 실행된다(R05가 고친
+결함). ② **매매 지시는 리밸런싱 당일에만 렌더한다** — 지나간 지시를 매일 반복하면 이미 실행한
+매매를 다시 하라는 뜻이 되므로, 그 외 날에는 `RebalancePlan.targets`(현재 목표 배분)만 보여준다.
+"현재 보유"는 실제 계좌가 아니라 **직전 리밸런싱 목표 비중**이며 리포트가 이 가정을 명시한다.
+
 **스크리닝 제약(EPIC-03)**: `screening/`은 `rule/`·`formula/`·`strategy/`·`workspace/evaluation.py`·
 `workspace/service.py`를 import하지 않는다(`workspace/numeric.py` leaf만 예외). 제외 필터 10종 중
 6종(관리종목/투자경고·위험/거래정지/정리매매/환기종목/불성실공시)과 `FormulaOperand`는
@@ -202,7 +211,8 @@ EPIC-03 D5(결과 미저장)를 반복 백테스트 비용 때문에 완화한 �
 
 **로드맵 문서**: PRD/TRD/DESIGN은 `roadmap/EPIC_R0X/`에 `PRD-R0X-TOPIC.md` 규칙으로 둔다
 (`.omc/specs`는 작업용 임시 산출물). R01=팩터 플랫폼+선언형 코어+워크스페이스, R02=GUI,
-R03=노코드 스크리닝, R04=펀더멘털 증분 수집+팩터 순위 스크리닝.
+R03=노코드 스크리닝, R04=펀더멘털 증분 수집+팩터 순위 스크리닝,
+R05=데일리 포트폴리오 리밸런싱 권고(`roadmap/EPIC_R05/DESIGN-R05-DAILY_PORTFOLIO.md`).
 차기 과제(P3 백테스트 이력 영속 → P1 포트폴리오 백테스트 → P2 스크리닝→유니버스 연결)와
 그 근거·미결 결정 사항은 **`roadmap/BACKLOG.md`** 참고 — 새 세션에서 플랫폼 작업을 시작할 때
 여기부터 읽는다.
