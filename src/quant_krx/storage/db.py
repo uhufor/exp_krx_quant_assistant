@@ -25,6 +25,7 @@ from quant_krx.strategy.validation import validate_definition_strict
 from .backtest_schema import BACKTEST_MIGRATION_SQL, BACKTEST_SCHEMA_SQL
 from .definition_schema import DEFINITION_SCHEMA_SQL
 from .schema import SCHEMA_SQL
+from .validation_schema import VALIDATION_SCHEMA_SQL
 from .workspace_schema import WORKSPACE_SCHEMA_SQL
 
 _SCHEMA_STATEMENTS = (
@@ -35,6 +36,7 @@ _SCHEMA_STATEMENTS = (
     DEFINITION_SCHEMA_SQL,
     WORKSPACE_SCHEMA_SQL,
     BACKTEST_SCHEMA_SQL,
+    VALIDATION_SCHEMA_SQL,
 )
 
 # DDL에서 테이블명을 추출해 둔다 — 목록을 따로 하드코딩하면 신규 테이블 추가 시 드리프트가 생긴다.
@@ -587,3 +589,62 @@ class Database:
     def delete_backtest_run(self, run_id: str) -> None:
         with self.cursor() as conn:
             conn.execute("DELETE FROM backtest_runs WHERE run_id=?", [run_id])
+
+    # --- 검증 실행 이력 (P4) ---
+
+    _VALIDATION_COLUMNS = (
+        "validation_id, strategy_id, spec, params, summary, folds, oos_equity, executed_at"
+    )
+
+    @staticmethod
+    def _validation_row_to_dict(row: tuple) -> dict:
+        keys = [c.strip() for c in Database._VALIDATION_COLUMNS.split(",")]
+        record = dict(zip(keys, row, strict=True))
+        for json_key in ("spec", "params", "summary", "folds", "oos_equity"):
+            record[json_key] = json.loads(record[json_key])
+        return record
+
+    def insert_validation_run(self, record: dict) -> None:
+        with self.cursor() as conn:
+            conn.execute(
+                f"INSERT OR REPLACE INTO validation_runs ({self._VALIDATION_COLUMNS}) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    record["validation_id"],
+                    record["strategy_id"],
+                    json.dumps(record["spec"]),
+                    json.dumps(record["params"]),
+                    json.dumps(record["summary"]),
+                    json.dumps(record["folds"]),
+                    json.dumps(record["oos_equity"]),
+                    record["executed_at"],
+                ],
+            )
+
+    def get_validation_run(self, validation_id: str) -> dict | None:
+        with self.cursor() as conn:
+            row = conn.execute(
+                f"SELECT {self._VALIDATION_COLUMNS} FROM validation_runs WHERE validation_id=?",
+                [validation_id],
+            ).fetchone()
+        return self._validation_row_to_dict(row) if row is not None else None
+
+    def list_validation_runs(
+        self, *, strategy_id: str | None = None, limit: int = 50
+    ) -> list[dict]:
+        """최근 실행 순 목록. folds/oos_equity까지 포함하므로 목록 응답에서는 호출부가 걸러낸다."""
+        where = "WHERE strategy_id=?" if strategy_id else ""
+        params = [strategy_id, limit] if strategy_id else [limit]
+        with self.cursor() as conn:
+            rows = conn.execute(
+                f"SELECT {self._VALIDATION_COLUMNS} FROM validation_runs {where} "
+                "ORDER BY executed_at DESC LIMIT ?",
+                params,
+            ).fetchall()
+        return [self._validation_row_to_dict(row) for row in rows]
+
+    def delete_validation_run(self, validation_id: str) -> None:
+        with self.cursor() as conn:
+            conn.execute(
+                "DELETE FROM validation_runs WHERE validation_id=?", [validation_id]
+            )

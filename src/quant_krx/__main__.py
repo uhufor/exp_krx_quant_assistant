@@ -525,70 +525,24 @@ def fetch_fundamental_cmd(
         close()
 
 
-@app.command("strategy-backtest")
-def strategy_backtest_cmd(
-    strategy_id: str = typer.Argument(..., help="백테스트할 전략 id"),
-    symbols: str = typer.Option(
-        None, "--symbols", help="콤마 구분 종목 목록(생략 시 전략 universe.symbols 사용)"
-    ),
-    start: str = typer.Option(None, "--start", help="시작일 YYYY-MM-DD(기본: 5년 전)"),
-    end: str = typer.Option(None, "--end", help="종료일 YYYY-MM-DD(기본: 오늘)"),
-    fees: float = typer.Option(0.003, "--fees"),
-    slippage: float = typer.Option(0.001, "--slippage"),
-    data_source: str = typer.Option(
-        "fixture", "--data-source", help="데이터 소스: fixture | krx_dart(KRX+DART 실데이터)"
-    ),
-    benchmark: str = typer.Option(
-        None, "--benchmark", help="벤치마크 심볼/시장(예: KOSPI) — 상대 성과 함께 산출"
-    ),
-    no_cache: bool = typer.Option(
-        False, "--no-cache", help="동일 조건의 저장된 결과가 있어도 무시하고 재계산"
-    ),
+def _load_backtest_inputs(
+    db,
+    svc,
+    defn,
+    *,
+    symbols: str | None,
+    start_date,
+    end_date,
+    data_source: str,
+    benchmark: str | None,
 ):
-    """선언형 전략을 백테스트하고 최소 지표 집합을 표로 표시한다.
+    """대상 종목 확정 + 데이터 조립 — strategy-backtest와 validation-run이 공유한다.
 
-    실행 결과는 `backtest_runs`에 자동 기록되며(backtest-list로 조회), 정의·파라미터·데이터가
-    모두 동일한 직전 실행이 있으면 재계산 없이 저장된 결과를 복원한다(--no-cache로 강제 재계산).
+    실패는 사유를 한국어로 출력하고 DB를 닫은 뒤 non-zero 종료한다(두 명령의 동작 일치).
     """
-    from datetime import date, datetime, timedelta
+    from datetime import date
 
-    from quant_krx.storage.db import Database
     from quant_krx.workspace.data_loading import prepare_backtest_data, resolve_backtest_symbols
-    from quant_krx.workspace.errors import WorkspaceError
-    from quant_krx.workspace.service import WorkspaceService
-
-    if data_source not in ("fixture", "krx_dart"):
-        console.print(f"[red]알 수 없는 --data-source '{data_source}'[/red]")
-        raise typer.Exit(1)
-
-    settings = get_settings()
-    db = Database(settings.duckdb_path)
-    db.connect()
-    svc = WorkspaceService(db)
-
-    defn = svc.get_strategy(strategy_id)
-    if defn is None:
-        from quant_krx.workspace.errors import not_found_hint
-
-        hint = not_found_hint(d.id for d in svc.list_strategies())
-        console.print(f"[red]전략 '{strategy_id}'을(를) 찾을 수 없습니다.{hint}[/red]")
-        db.close()
-        raise typer.Exit(1)
-
-    validation = svc.validate_strategy(defn)
-    if not svc.is_runnable(strategy_id) or not validation.ok:
-        console.print(f"[red]전략 '{strategy_id}'은(는) 실행 불가(runnable/검증)[/red]")
-        if validation.errors:
-            console.print(f"[dim]{'; '.join(validation.errors)}[/dim]")
-        db.close()
-        raise typer.Exit(1)
-
-    end_date = datetime.strptime(end, "%Y-%m-%d").date() if end else date.today()
-    start_date = (
-        datetime.strptime(start, "%Y-%m-%d").date()
-        if start
-        else end_date - timedelta(days=365 * 5)
-    )
 
     requested_symbols = [s.strip() for s in symbols.split(",")] if symbols else None
     universe_plan = None
@@ -631,10 +585,7 @@ def strategy_backtest_cmd(
     def _warn_benchmark_failure(bm: str, exc: Exception) -> None:
         console.print(f"[yellow]벤치마크 '{bm}' 수집 실패(무시하고 계속): {exc}[/yellow]")
 
-    data_errors: dict[str, str] = {}
-
     def _warn_symbol_failure(sym: str, exc: Exception) -> None:
-        data_errors[sym] = str(exc)
         console.print(f"[yellow]종목 '{sym}' 데이터 조립 실패(건너뛰고 계속): {exc}[/yellow]")
 
     def _warn_fundamental_failure(label: str, exc: Exception) -> None:
@@ -652,6 +603,79 @@ def strategy_backtest_cmd(
         console.print("[red]모든 종목의 데이터 조립이 실패했습니다[/red]")
         db.close()
         raise typer.Exit(1)
+
+    return data, benchmark_df, universe_plan, sym_list
+
+
+@app.command("strategy-backtest")
+def strategy_backtest_cmd(
+    strategy_id: str = typer.Argument(..., help="백테스트할 전략 id"),
+    symbols: str = typer.Option(
+        None, "--symbols", help="콤마 구분 종목 목록(생략 시 전략 universe.symbols 사용)"
+    ),
+    start: str = typer.Option(None, "--start", help="시작일 YYYY-MM-DD(기본: 5년 전)"),
+    end: str = typer.Option(None, "--end", help="종료일 YYYY-MM-DD(기본: 오늘)"),
+    fees: float = typer.Option(0.003, "--fees"),
+    slippage: float = typer.Option(0.001, "--slippage"),
+    data_source: str = typer.Option(
+        "fixture", "--data-source", help="데이터 소스: fixture | krx_dart(KRX+DART 실데이터)"
+    ),
+    benchmark: str = typer.Option(
+        None, "--benchmark", help="벤치마크 심볼/시장(예: KOSPI) — 상대 성과 함께 산출"
+    ),
+    no_cache: bool = typer.Option(
+        False, "--no-cache", help="동일 조건의 저장된 결과가 있어도 무시하고 재계산"
+    ),
+):
+    """선언형 전략을 백테스트하고 최소 지표 집합을 표로 표시한다.
+
+    실행 결과는 `backtest_runs`에 자동 기록되며(backtest-list로 조회), 정의·파라미터·데이터가
+    모두 동일한 직전 실행이 있으면 재계산 없이 저장된 결과를 복원한다(--no-cache로 강제 재계산).
+    """
+    from datetime import date, datetime, timedelta
+
+    from quant_krx.storage.db import Database
+    from quant_krx.workspace.errors import WorkspaceError
+    from quant_krx.workspace.service import WorkspaceService
+
+    if data_source not in ("fixture", "krx_dart"):
+        console.print(f"[red]알 수 없는 --data-source '{data_source}'[/red]")
+        raise typer.Exit(1)
+
+    settings = get_settings()
+    db = Database(settings.duckdb_path)
+    db.connect()
+    svc = WorkspaceService(db)
+
+    defn = svc.get_strategy(strategy_id)
+    if defn is None:
+        from quant_krx.workspace.errors import not_found_hint
+
+        hint = not_found_hint(d.id for d in svc.list_strategies())
+        console.print(f"[red]전략 '{strategy_id}'을(를) 찾을 수 없습니다.{hint}[/red]")
+        db.close()
+        raise typer.Exit(1)
+
+    validation = svc.validate_strategy(defn)
+    if not svc.is_runnable(strategy_id) or not validation.ok:
+        console.print(f"[red]전략 '{strategy_id}'은(는) 실행 불가(runnable/검증)[/red]")
+        if validation.errors:
+            console.print(f"[dim]{'; '.join(validation.errors)}[/dim]")
+        db.close()
+        raise typer.Exit(1)
+
+    end_date = datetime.strptime(end, "%Y-%m-%d").date() if end else date.today()
+    start_date = (
+        datetime.strptime(start, "%Y-%m-%d").date()
+        if start
+        else end_date - timedelta(days=365 * 5)
+    )
+
+    data, benchmark_df, universe_plan, sym_list = _load_backtest_inputs(
+        db, svc, defn,
+        symbols=symbols, start_date=start_date, end_date=end_date,
+        data_source=data_source, benchmark=benchmark,
+    )
 
     try:
         report = svc.backtest(
@@ -896,6 +920,261 @@ def backtest_compare_cmd(
     definition_hashes = {record["definition_hash"] for _, record in records}
     if len(definition_hashes) == 1:
         console.print("[dim]정의 지문이 동일합니다 — 전략 정의는 같고 실행 조건만 다릅니다[/dim]")
+
+
+@app.command("validation-run")
+def validation_run_cmd(
+    strategy_id: str = typer.Argument(..., help="검증할 전략 id"),
+    spec_source: str = typer.Option(
+        None, "--spec",
+        help="검증 스펙 JSON 파일 경로 또는 '-'(stdin). 파라미터 그리드는 여기에만 넣는다",
+    ),
+    mode: str = typer.Option(None, "--mode", help="holdout | walkforward(기본)"),
+    n_folds: int = typer.Option(None, "--folds", help="워크포워드 폴드 수(기본 3)"),
+    test_ratio: float = typer.Option(None, "--test-ratio", help="검증에 쓸 뒤쪽 비율(기본 0.3)"),
+    anchored: bool = typer.Option(
+        None, "--anchored/--rolling", help="학습창 확장(기본) vs 고정 길이 롤링"
+    ),
+    objective: str = typer.Option(
+        None, "--objective", help="학습 구간 선택 기준: sharpe(기본) | total_return | calmar"
+    ),
+    symbols: str = typer.Option(
+        None, "--symbols", help="콤마 구분 종목 목록(생략 시 전략 universe)"
+    ),
+    start: str = typer.Option(None, "--start", help="시작일 YYYY-MM-DD(기본: 5년 전)"),
+    end: str = typer.Option(None, "--end", help="종료일 YYYY-MM-DD(기본: 오늘)"),
+    fees: float = typer.Option(0.003, "--fees"),
+    slippage: float = typer.Option(0.001, "--slippage"),
+    data_source: str = typer.Option(
+        "fixture", "--data-source", help="데이터 소스: fixture | krx_dart"
+    ),
+    benchmark: str = typer.Option(None, "--benchmark", help="벤치마크 심볼/시장(예: KOSPI)"),
+):
+    """전략을 학습/검증 구간으로 나눠 돌리고 과최적화 신호를 표로 표시한다(P4).
+
+    파라미터 그리드를 주면 폴드마다 **학습 구간에서만** 최적 조합을 고르고 **검증 구간에서
+    그 조합의 성과**를 잰다. 두 성과의 낙차가 크면 과거에 맞춰 깎은 결과라는 뜻이다.
+    실행 결과는 `validation_runs`에 저장된다(validation-list로 조회).
+    """
+    from datetime import date, datetime, timedelta
+
+    from quant_krx.storage.db import Database
+    from quant_krx.workspace.errors import WorkspaceError
+    from quant_krx.workspace.service import WorkspaceService
+    from quant_krx.workspace.validation import ValidationSpec
+    from quant_krx.workspace.walkforward import FoldSpecError
+
+    if data_source not in ("fixture", "krx_dart"):
+        console.print(f"[red]알 수 없는 --data-source '{data_source}'[/red]")
+        raise typer.Exit(1)
+
+    spec_raw: dict = {}
+    if spec_source:
+        try:
+            spec_raw = _read_json_input(spec_source)
+        except (OSError, json.JSONDecodeError) as e:
+            console.print(f"[red]스펙 읽기 실패: {e}[/red]")
+            raise typer.Exit(1) from e
+
+    # CLI 옵션은 스펙 파일 위에 덮어쓴다 — 그리드만 고정하고 폴드 수를 바꿔가며 돌리는 흐름.
+    for key, value in (
+        ("mode", mode), ("n_folds", n_folds), ("test_ratio", test_ratio),
+        ("anchored", anchored), ("objective", objective),
+    ):
+        if value is not None:
+            spec_raw[key] = value
+
+    try:
+        spec = ValidationSpec.from_dict(spec_raw)
+    except WorkspaceError as e:
+        console.print(f"[red]검증 스펙 오류: {e}[/red]")
+        raise typer.Exit(1) from e
+
+    settings = get_settings()
+    db = Database(settings.duckdb_path)
+    db.connect()
+    svc = WorkspaceService(db)
+
+    defn = svc.get_strategy(strategy_id)
+    if defn is None:
+        from quant_krx.workspace.errors import not_found_hint
+
+        hint = not_found_hint(d.id for d in svc.list_strategies())
+        console.print(f"[red]전략 '{strategy_id}'을(를) 찾을 수 없습니다.{hint}[/red]")
+        db.close()
+        raise typer.Exit(1)
+
+    end_date = datetime.strptime(end, "%Y-%m-%d").date() if end else date.today()
+    start_date = (
+        datetime.strptime(start, "%Y-%m-%d").date()
+        if start
+        else end_date - timedelta(days=365 * 5)
+    )
+
+    data, benchmark_df, universe_plan, _ = _load_backtest_inputs(
+        db, svc, defn,
+        symbols=symbols, start_date=start_date, end_date=end_date,
+        data_source=data_source, benchmark=benchmark,
+    )
+
+    def _on_progress(fold_idx: int, folds: int, stage: str, done: int, total: int) -> None:
+        label = "학습" if stage == "train" else "검증"
+        console.print(f"[dim]폴드 {fold_idx + 1}/{folds} {label} {done}/{total}[/dim]")
+
+    try:
+        report = svc.validate_oos(
+            strategy_id, data=data, spec=spec, start=start_date, end=end_date,
+            fees=fees, slippage=slippage, benchmark=benchmark_df,
+            data_source=data_source, benchmark_symbol=benchmark,
+            resolve_universe=universe_plan.eligible_at if universe_plan else None,
+            on_progress=_on_progress,
+        )
+    except (WorkspaceError, FoldSpecError) as e:
+        console.print(f"[red]검증 실패: {e}[/red]")
+        db.close()
+        raise typer.Exit(1) from e
+    db.close()
+
+    console.print(f"[dim]검증 이력 저장됨: validation_id={report.validation_id}[/dim]")
+    _print_validation(report)
+
+
+def _print_validation(report) -> None:
+    """검증 요약 + 폴드별 IS/OOS 표 — validation-run과 validation-show가 공유(drift 방지)."""
+    summary = report.summary
+    spec = report.spec
+
+    header = Table(title=f"검증 요약: {report.strategy_id}", show_lines=True)
+    header.add_column("항목")
+    header.add_column("값")
+    header.add_row("방식", f"{spec.mode} · {'확장창' if spec.anchored else '롤링창'}")
+    header.add_row("폴드", f"{summary.folds_ok}/{summary.folds_total} 성공")
+    header.add_row("목적함수", spec.objective)
+    header.add_row(f"학습(IS) {spec.objective}", _fmt_num(summary.is_objective))
+    header.add_row(f"검증(OOS) {spec.objective}", _fmt_num(summary.oos_objective))
+    header.add_row("성과 저하율", _fmt_pct(summary.degradation))
+    header.add_row("파라미터 안정성", _fmt_pct(summary.param_stability))
+    header.add_row("OOS 일관성", _fmt_pct(summary.oos_consistency))
+    header.add_row("OOS 합성 수익률", _fmt_pct(summary.oos_total_return))
+    header.add_row("OOS 합성 MDD", _fmt_pct(summary.oos_mdd))
+    console.print(header)
+
+    folds = Table(title="폴드별 결과", show_lines=False)
+    folds.add_column("#")
+    folds.add_column("학습 구간")
+    folds.add_column("검증 구간")
+    folds.add_column("선택 파라미터")
+    folds.add_column("IS 수익률")
+    folds.add_column("OOS 수익률")
+    folds.add_column("OOS MDD")
+    for result in report.folds:
+        fold = result.fold
+        params = ", ".join(f"{k}={v}" for k, v in sorted(result.params.items())) or "-"
+        if not result.ok:
+            folds.add_row(
+                str(fold.index + 1),
+                f"{fold.train_start}~{fold.train_end}",
+                f"{fold.test_start}~{fold.test_end}",
+                params, "-", f"[red]{result.error}[/red]", "-",
+            )
+            continue
+        folds.add_row(
+            str(fold.index + 1),
+            f"{fold.train_start}~{fold.train_end}",
+            f"{fold.test_start}~{fold.test_end}",
+            params,
+            _fmt_pct(result.train_metrics.total_return),
+            _fmt_pct(result.test_metrics.total_return),
+            _fmt_pct(result.test_metrics.mdd),
+        )
+    console.print(folds)
+
+    _print_overfit_verdict(summary, spec)
+
+
+def _print_overfit_verdict(summary, spec) -> None:
+    """지표를 사람이 읽을 한 줄 판정으로 요약한다 — 숫자만 던지면 해석이 사용자 몫이 된다."""
+    notes: list[str] = []
+    if math.isfinite(summary.degradation) and summary.degradation > 0.5:
+        notes.append(
+            f"검증 구간에서 {spec.objective}가 {summary.degradation:.0%} 떨어졌습니다"
+            " — 과최적화 가능성이 높습니다"
+        )
+    if spec.grid and math.isfinite(summary.param_stability) and summary.param_stability < 0.5:
+        notes.append(
+            "폴드마다 다른 파라미터가 선택되었습니다 — 신호가 아니라 노이즈에 맞춰졌을 수 있습니다"
+        )
+    if math.isfinite(summary.oos_consistency) and summary.oos_consistency < 0.5:
+        notes.append("검증 구간의 절반 이상이 손실입니다")
+
+    if notes:
+        for note in notes:
+            console.print(f"[yellow]⚠️  {note}[/yellow]")
+    else:
+        console.print("[green]✅ 뚜렷한 과최적화 신호는 없습니다[/green]")
+
+
+@app.command("validation-list")
+def validation_list_cmd(
+    strategy_id: str = typer.Option(None, "--strategy-id", help="특정 전략만 필터"),
+    limit: int = typer.Option(20, "--limit", help="최대 표시 건수"),
+):
+    """저장된 검증 실행 이력을 최근순으로 표시한다."""
+    db, svc = _open_workspace()
+    records = svc.list_validation_runs(strategy_id=strategy_id, limit=limit)
+    db.close()
+
+    if not records:
+        console.print(
+            "[dim]저장된 검증 이력이 없습니다. validation-run으로 먼저 실행하십시오.[/dim]"
+        )
+        return
+
+    table = Table(title="검증 실행 이력", show_lines=False)
+    columns = (
+        "validation_id", "전략", "방식", "폴드", "저하율", "안정성", "OOS 수익률", "실행 시각",
+    )
+    for column in columns:
+        table.add_column(column)
+    for record in records:
+        spec, summary = record["spec"], record["summary"]
+        table.add_row(
+            record["validation_id"],
+            record["strategy_id"],
+            f"{spec.get('mode')}·{spec.get('objective')}",
+            f"{summary.get('folds_ok')}/{summary.get('folds_total')}",
+            _fmt_pct(summary.get("degradation")),
+            _fmt_pct(summary.get("param_stability")),
+            _fmt_pct(summary.get("oos_total_return")),
+            f"{record['executed_at']:%Y-%m-%d %H:%M}",
+        )
+    console.print(table)
+
+
+@app.command("validation-show")
+def validation_show_cmd(
+    validation_id: str = typer.Argument(..., help="조회할 validation_id"),
+):
+    """저장된 검증 1건의 요약·폴드 상세를 표시한다."""
+    db, svc = _open_workspace()
+    record = svc.get_validation_run_record(validation_id)
+    report = svc.get_validation_run(validation_id) if record is not None else None
+    db.close()
+
+    if report is None:
+        console.print(f"[red]검증 실행 '{validation_id}'을(를) 찾을 수 없습니다[/red]")
+        raise typer.Exit(1)
+
+    params = record["params"]
+    console.print(
+        f"[dim]기간 {params.get('start')}~{params.get('end')} · "
+        f"종목 {len(params.get('symbols') or [])}개 · 소스 {params.get('data_source') or '-'} · "
+        f"실행 {record['executed_at']:%Y-%m-%d %H:%M}[/dim]"
+    )
+    _print_validation(report)
+
+    if report.spec.grid:
+        console.print("[dim]그리드: " + json.dumps(report.spec.grid, ensure_ascii=False) + "[/dim]")
 
 
 @app.command("formula-create")
