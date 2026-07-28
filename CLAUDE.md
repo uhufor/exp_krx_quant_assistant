@@ -45,7 +45,7 @@ uv run python -m quant_krx run-daily --dry-run --data-source fixture --as-of 202
 uv run python -m quant_krx show-reports --type all
 
 # CLI — 플랫폼(활성 개발)
-uv run python -m quant_krx list-factors              # 팩터 32종 목록
+uv run python -m quant_krx list-factors              # 팩터 35종 목록
 uv run python -m quant_krx show-factor <id>          # 팩터 상세
 uv run python -m quant_krx fetch-fundamental --provider fixture  # 펀더멘털 오프라인 수집
 uv run python -m quant_krx formula-create / rule-create / strategy-create <file.json|->
@@ -68,7 +68,7 @@ CLI는 총 40여 개 커맨드(`__main__.py`)이며 접두사로 계층이 갈�
 ### 계층 지도 (의존은 항상 아래→위 단방향)
 
 ```
-factors/          순수 계산 32종            ← 실행·저장 계층 import 금지(INV-1, AST 강제)
+factors/          순수 계산 35종            ← 실행·저장 계층 import 금지(INV-1, AST 강제)
 formula/ rule/ strategy/   선언형 정의·검증  ← 평가·실행 없음(순수 데이터)
 workspace/        평가·백테스트·템플릿 파사드  → WorkspaceService
 screening/        전종목 조건 스크리닝(독립)   → ScreeningService (rule/formula/strategy 미참조,
@@ -95,7 +95,7 @@ watchlist → fetch_ohlcv → validate → VectorBT backtest → Signal → Repo
 | `DataProvider` | `data/base.py` | `PyKrxAdapter`, `FixtureAdapter` (테스트 전용) |
 | `Strategy`(레거시) | `quant/base.py` | `quant/strategies/*.py` 5종 — **프로덕션 경로에서 미사용**(D3로 선언형 Built-in Template 5종에 흡수). `tests/unit/test_quant.py`만 참조하는 사실상 dead code이며, 신규 전략은 여기 추가하지 않는다. `quant/base.py`의 `BacktestResult`/`BacktestMetrics`와 `quant/metrics.py`는 `workspace/backtest.py`가 계속 재사용한다. |
 | `LLMProvider` | `llm/base.py` | `AnthropicProvider`, `OpenAICompatibleProvider`, `MockProvider` |
-| `Factor` | `factors/base.py` | 32종 (가격·기술 7 + 밸류에이션 11 + 재무제표 14, `factors/catalog/`) |
+| `Factor` | `factors/base.py` | 35종 (`factors/catalog/` — 카테고리 10종, `list-factors`로 조회) |
 | `FundamentalProvider` | `data/fundamental_base.py` | `PyKrxFundamentalAdapter`(밸류에이션), `DartFundamentalAdapter`(재무제표, DART Open API), `FixtureFundamentalAdapter`(테스트) |
 
 ### 팩터 플랫폼 (factors/, data/ — refined_epics/*-R01-FACTOR_PLATFORM.md)

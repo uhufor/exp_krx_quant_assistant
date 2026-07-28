@@ -19,7 +19,7 @@ CLI의 팩터 조회·공식/규칙/전략 CRUD·백테스트 실행을 로컬 1
 전체 사용 흐름 예제는
 아래 "GUI 사용 예제" 참고.
 
-화면은 상단 탭으로 구성됩니다: **팩터**(32종 카탈로그 읽기 전용 조회) · **공식**(Formula, 트리
+화면은 상단 탭으로 구성됩니다: **팩터**(35종 카탈로그 읽기 전용 조회) · **공식**(Formula, 트리
 편집기로 팩터를 조합한 파생 지표 생성) · **규칙**(Rule, 비교/AND·OR·NOT 조건 트리 편집기) ·
 **전략**(Strategy, 공식/규칙 참조 + 활성화·템플릿·Export/Import) · **백테스트**(전략 실행 + 지표
 요약·equity curve 차트·거래내역 + 실행 이력 목록과 2건 이상 선택 비교).
@@ -62,7 +62,7 @@ cd web && npm run dev
 
 프론트엔드 테스트: `cd web && npm test`(Vitest, 트리 편집기 순수 로직 검증).
 
-`run-daily`·`show-reports`·`fetch-fundamental`·`validate-config`와 원본 32종 팩터 카탈로그
+`run-daily`·`show-reports`·`fetch-fundamental`·`validate-config`와 원본 팩터 카탈로그(35종)
 자체의 CRUD(생성/수정/삭제)는 GUI 범위에서 제외됩니다(CLI로만 사용).
 
 

@@ -73,7 +73,7 @@
 
 ## 6. `quant-krx` 팩터 플랫폼과의 연결점
 
-현재 팩터 카탈로그(32종: 가격·기술 7 + 밸류에이션 11 + 재무제표 14)를 기준으로 볼 때:
+현재 팩터 카탈로그(35종)를 기준으로 볼 때:
 
 - **바로 적용 가능**: Golden/Death Cross(`sma`), MACD 크로스(`macd`), RSI 과매도 반등(`rsi`), 볼린저 밴드 평균회귀(`bollinger`) — 이미 builtin Template로 제공됨. 절대 모멘텀(`momentum`, lookback=252/skip=21 기본값이 정확히 12-1 모멘텀 정의와 일치)도 builtin Template 제공.
 - **밸류에이션 팩터만으로 근사 가능**: 저PER+고ROE(Buffett/퀄리티-밸류 근사), 저PER+저PBR(Graham식 딥밸류), 고배당(Dogs-of-Dow류) — `per`/`pbr`/`roe_approx`/`dividend_yield`는 모두 `required_data=valuation`이라 PyKrx 로그인만으로 실데이터 사용 가능.

@@ -21,15 +21,27 @@ GUI를 쓰면 이 JSON 규약을 직접 다룰 필요가 없습니다(내부적�
 
 ## 팩터 플랫폼 (Factor Platform)
 
-가격·기술(7종), 밸류에이션(11종), 재무제표(14종) 총 32종의 지표(Factor)를 플랫폼이
-1급 자원으로 관리합니다. 지표는 `factors/` 패키지가 순수 계산으로 제공하며,
-펀더멘털 데이터(밸류에이션·재무제표)는 `data/` 패키지가 DuckDB에 저장·조회합니다.
+총 **35종**의 지표(Factor)를 플랫폼이 1급 자원으로 관리합니다. 지표는 `factors/` 패키지가
+순수 계산으로 제공하며, 펀더멘털 데이터(밸류에이션·재무제표)는 `data/` 패키지가 DuckDB에
+저장·조회합니다.
+
+`list-factors --category`에 쓰는 카테고리는 아래 10종입니다.
 
 | 카테고리 | 개수 | 예시 |
 |---|---|---|
-| 가격·기술 | 7 | `price`, `sma`, `ema`, `rsi`, `macd`, `bollinger`, `momentum` |
-| 밸류에이션 | 11 | `per`, `pbr`, `eps`, `bps`, `roe_approx`, `peg`, `market_cap` 등 |
-| 재무제표 | 14 | `roa`, `roic`, `gross_margin`, `revenue_growth`, `debt_to_equity` 등 |
+| `quality` | 10 | `bps`, `eps`, `gp_to_assets`, `gross_margin` 등 |
+| `value` | 7 | `dividend_yield`, `earnings_yield`, `ev_ebitda`, `pbr` 등 |
+| `growth` | 4 | `eps_growth`, `op_income_growth`, `peg`, `revenue_growth` |
+| `trend` | 4 | `ema`, `macd`, `rolling_high`, `sma` |
+| `stability` | 3 | `current_ratio`, `debt_to_equity`, `interest_coverage` |
+| `momentum` | 2 | `momentum`, `rsi` |
+| `volume` | 2 | `trading_value`, `volume` |
+| `price` | 1 | `price` |
+| `size` | 1 | `market_cap` |
+| `volatility` | 1 | `bollinger` |
+
+필요 데이터(`required_data`)는 카테고리와 별개입니다 — `ohlcv`만 필요한 팩터, 밸류에이션이
+필요한 팩터, 재무제표가 필요한 팩터가 섞여 있으며 `show-factor <id>`로 확인할 수 있습니다.
 
 ---
 
