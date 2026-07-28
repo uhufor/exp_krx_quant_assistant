@@ -52,6 +52,19 @@ class DataProvider(Protocol):
         """
         ...
 
+    def list_etf_symbols(self, as_of: date | None = None) -> set[str]:
+        """ETF 종목 코드 집합(스크리닝 제외 필터용).
+
+        provider를 통하는 이유: 예전에는 스크리닝이 pykrx를 직접 호출해서, fixture
+        데이터소스로 오프라인 실행을 해도 ETF 필터가 켜져 있으면 KRX 로그인을 시도하고
+        자격증명이 없으면 스크리닝 자체가 실패했다.
+        """
+        return set()
+
+    def list_etn_symbols(self, as_of: date | None = None) -> set[str]:
+        """ETN 종목 코드 집합(스크리닝 제외 필터용). list_etf_symbols와 같은 이유로 분리."""
+        return set()
+
     def fetch_ohlcv(
         self,
         symbol: str,

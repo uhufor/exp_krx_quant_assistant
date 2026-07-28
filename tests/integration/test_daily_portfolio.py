@@ -294,3 +294,61 @@ def test_show_reports_does_not_leak_pseudo_key(tmp_db, test_settings, provider, 
     assert result.exit_code == 0, result.stdout
     assert PORTFOLIO_SYMBOL not in result.stdout
     assert "포트폴리오" in result.stdout
+
+
+# --- run-daily CLI 옵션 (검증 수단) ---
+
+
+def _cli(monkeypatch, test_settings, *args):
+    from typer.testing import CliRunner
+
+    from quant_krx.__main__ import app
+
+    monkeypatch.setenv("DUCKDB_PATH", str(test_settings.duckdb_path))
+    monkeypatch.setenv("WATCHLIST_PATH", str(test_settings.watchlist_path))
+    monkeypatch.setenv("LLM_MOCK", "true")
+    return CliRunner(env={"COLUMNS": "200"}).invoke(app, list(args))
+
+
+def test_run_daily_accepts_as_of_and_fixture(monkeypatch, test_settings, tmp_db, provider):
+    """데일리를 네트워크 없이 특정 시점으로 재현할 수 있어야 한다(오프라인 검증 수단)."""
+    result = _cli(
+        monkeypatch, test_settings,
+        "run-daily", "--dry-run", "--data-source", "fixture", "--as-of", "2024-12-02",
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "ok" in result.stdout
+
+
+def test_run_daily_rejects_bad_as_of(monkeypatch, test_settings):
+    result = _cli(
+        monkeypatch, test_settings, "run-daily", "--data-source", "fixture", "--as-of", "2024/12/02"
+    )
+    assert result.exit_code != 0
+    assert "YYYY-MM-DD" in result.stdout
+    assert "Traceback" not in result.stdout
+
+
+def test_run_daily_rejects_unknown_data_source(monkeypatch, test_settings):
+    result = _cli(monkeypatch, test_settings, "run-daily", "--data-source", "yahoo")
+    assert result.exit_code != 0
+    assert "알 수 없는" in result.stdout
+
+
+def test_run_daily_as_of_changes_report_section(monkeypatch, test_settings, tmp_db, provider):
+    """리밸런싱일과 평일의 리포트 섹션이 달라야 한다(지난 지시 반복 방지 확인)."""
+    _cli(monkeypatch, test_settings, "run-daily", "--data-source", "fixture",
+         "--as-of", "2024-12-02")
+    _seed_portfolio_strategy(tmp_db, universe=Universe(symbols=("005930", "000660", "006400")))
+    _activate_only(tmp_db, "pf")
+
+    _cli(monkeypatch, test_settings, "run-daily", "--data-source", "fixture",
+         "--as-of", "2024-12-02")
+    on_day = _cli(monkeypatch, test_settings, "show-reports", "--type", "A").stdout
+
+    _cli(monkeypatch, test_settings, "run-daily", "--data-source", "fixture",
+         "--as-of", "2024-12-18")
+    off_day = _cli(monkeypatch, test_settings, "show-reports", "--type", "A").stdout
+
+    assert "매매 지시" in on_day or "현재 목표 배분" in on_day
+    assert "현재 목표 배분" in off_day

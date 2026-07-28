@@ -51,17 +51,40 @@ def run_daily(
     dry_run: bool = typer.Option(
         True, "--dry-run/--no-dry-run", help="알림 발송 없이 리포트만 생성"
     ),
+    as_of: str = typer.Option(
+        None, "--as-of", help="기준일 YYYY-MM-DD(기본: 오늘) — 과거 시점 재현·검증용"
+    ),
+    data_source: str = typer.Option(
+        "krx_dart", "--data-source",
+        help="데이터 소스: krx_dart(실데이터, 기본) | fixture(오프라인 합성)",
+    ),
 ):
-    """일일 퀀트 파이프라인 실행(활성 선언형 전략 집합 — strategy-activate로 제어)."""
-    from quant_krx.data.pykrx_adapter import PyKrxAdapter
+    """일일 퀀트 파이프라인 실행(활성 선언형 전략 집합 — strategy-activate로 제어).
+
+    기본값(오늘·krx_dart)은 운영 동작 그대로다. `--as-of`/`--data-source`는 리밸런싱일 등
+    특정 시점의 리포트를 네트워크 없이 재현해 눈으로 확인하기 위한 검증용 옵션이다.
+    """
+    from datetime import date, datetime
+
     from quant_krx.jobs.daily import DailyJob
     from quant_krx.storage.db import Database
+    from quant_krx.workspace.data_loading import DATA_SOURCES, _ohlcv_provider_for
+
+    if data_source not in DATA_SOURCES:
+        console.print(f"[red]알 수 없는 --data-source '{data_source}'(허용: {DATA_SOURCES})[/red]")
+        raise typer.Exit(1)
+
+    try:
+        as_of_date = datetime.strptime(as_of, "%Y-%m-%d").date() if as_of else date.today()
+    except ValueError as e:
+        console.print(f"[red]--as-of 형식이 올바르지 않습니다(YYYY-MM-DD): {as_of}[/red]")
+        raise typer.Exit(1) from e
 
     settings = get_settings()
     db = Database(settings.duckdb_path)
     db.connect()
 
-    provider = PyKrxAdapter()
+    provider = _ohlcv_provider_for(data_source)
     notifier = None
 
     if not dry_run:
@@ -75,8 +98,19 @@ def run_daily(
             db=db,
         )
 
-    job = DailyJob(settings=settings, db=db, provider=provider, notifier=notifier)
-    result = job.run(dry_run=dry_run)
+    # fixture 모드에서는 펀더멘털도 오프라인 어댑터를 써야 한다 — 기본값(PyKrx)을 그대로
+    # 두면 밸류에이션·재무 팩터를 쓰는 전략이 네트워크를 타서 오프라인 검증이 깨진다.
+    fundamental_provider = None
+    if data_source == "fixture":
+        from quant_krx.data.fixture_fundamental import FixtureFundamentalAdapter
+
+        fundamental_provider = FixtureFundamentalAdapter()
+
+    job = DailyJob(
+        settings=settings, db=db, provider=provider, notifier=notifier,
+        fundamental_provider=fundamental_provider,
+    )
+    result = job.run(dry_run=dry_run, as_of=as_of_date)
 
     table = Table(title=f"Daily Job: {result.run_id}")
     table.add_column("항목")

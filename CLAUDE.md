@@ -40,6 +40,8 @@ cd web && npm test && npm run build
 uv run python -m quant_krx validate-config
 uv run python -m quant_krx run-daily --dry-run       # 알림 없이 전체 파이프라인 실행
 uv run python -m quant_krx run-daily --no-dry-run    # Telegram 실제 발송
+uv run python -m quant_krx run-daily --dry-run --data-source fixture --as-of 2024-12-02
+                                                     # 오프라인·과거 시점 재현(검증용)
 uv run python -m quant_krx show-reports --type all
 
 # CLI — 플랫폼(활성 개발)
@@ -182,7 +184,11 @@ _transitive_closure`, `workspace/evaluation.py::_required_data_by_kind`) — 새
 **생존 편향**: `DataProvider.list_symbols(market, as_of=None)`의 `as_of`는 과거 구간 백테스트에서
 필수다 — 없으면 현재 상장 종목만 후보가 되어 상장폐지 종목이 빠지고 성과가 부풀려진다.
 `resolve_scan_universe(..., as_of=)` → `PyKrxAdapter.list_symbols`가 `get_market_ticker_list(date)`로
-전달한다. ETF/ETN 제외 필터는 pykrx가 시점별 목록을 주지 않아 현재 기준(알려진 한계).
+전달한다. **ETF/ETN 제외 목록도 `DataProvider.list_etf_symbols`/`list_etn_symbols`(as_of 지원)로
+provider를 통해 조회한다** — 예전에는 `screening/universe.py`가 pykrx를 직접 호출해서
+`--data-source fixture`로 오프라인 실행을 해도 이 필터가 켜져 있으면 KRX 로그인을 시도하고
+자격증명이 없으면 스크리닝이 죽었다. 제외 목록 조회 실패는 빈 집합으로 흡수한다(제외가 덜
+적용될 뿐, 일시적 조회 오류로 매일 잡이 죽지 않게).
 스크리닝 결과는 `screening_result_cache`에 `(condition_id, 조건 본문 해시, as_of)`로 캐시된다 —
 EPIC-03 D5(결과 미저장)를 반복 백테스트 비용 때문에 완화한 것이며, 조건 수정 시 해시가 바뀌어
 자동 무효화되고 조건 삭제 시 함께 지워진다.

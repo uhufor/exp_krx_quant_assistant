@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 
 import pandas as pd
 
 from .base import OHLCVData, ProviderMeta
+
+logger = logging.getLogger(__name__)
 
 
 def _krx_stock():
@@ -62,6 +65,28 @@ class PyKrxAdapter:
             return [t.zfill(6) for t in tickers]
         except Exception:
             return []
+
+    def _list_special_symbols(self, kind: str, as_of: date | None) -> set[str]:
+        """ETF/ETN 티커 목록. 실패는 빈 집합으로 흡수한다(list_symbols와 동일 관례).
+
+        제외 목록을 못 가져왔을 때 스크리닝 전체를 실패시키는 것보다, 제외가 덜 적용된
+        결과를 내는 편이 낫다 — 실패시키면 일시적 조회 오류로 매일 잡이 죽는다.
+        """
+        try:
+            s = _krx_stock()
+            target = as_of or date.today()
+            date_str = _resolve_trading_day(s, target.strftime("%Y%m%d"))
+            fetch = getattr(s, f"get_{kind}_ticker_list")
+            return {t.zfill(6) for t in fetch(date_str)}
+        except Exception as e:  # noqa: BLE001 — 위 docstring 참고
+            logger.warning("%s 티커 목록 조회 실패(제외 미적용): %s", kind.upper(), e)
+            return set()
+
+    def list_etf_symbols(self, as_of: date | None = None) -> set[str]:
+        return self._list_special_symbols("etf", as_of)
+
+    def list_etn_symbols(self, as_of: date | None = None) -> set[str]:
+        return self._list_special_symbols("etn", as_of)
 
     def fetch_ohlcv(
         self,

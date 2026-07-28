@@ -200,3 +200,72 @@ def test_fetch_metadata_market_empty_when_ticker_list_lookup_fails(monkeypatch):
 
     assert metadata["005930"]["market"] == ""
     assert metadata["005930"]["name"] == "삼성전자"  # market 실패가 name 조회까지 막지 않음
+
+
+# --- ETF/ETN 목록 조회 (provider 프로토콜로 이관) ---
+
+
+class _EtfStub:
+    """get_etf/etn_ticker_list와 거래일 보정만 제공하는 최소 스텁."""
+
+    def __init__(self, etf=(), etn=(), raise_on=None):
+        self._etf = list(etf)
+        self._etn = list(etn)
+        self._raise_on = raise_on
+        self.calls: list[tuple[str, str]] = []
+
+    def get_nearest_business_day_in_a_week(self, date_str, prev=True):
+        return date_str
+
+    def get_etf_ticker_list(self, date_str):
+        if self._raise_on == "etf":
+            raise RuntimeError("조회 실패(테스트)")
+        self.calls.append(("etf", date_str))
+        return self._etf
+
+    def get_etn_ticker_list(self, date_str):
+        if self._raise_on == "etn":
+            raise RuntimeError("조회 실패(테스트)")
+        self.calls.append(("etn", date_str))
+        return self._etn
+
+
+def _patch(monkeypatch, stub):
+    monkeypatch.setattr("quant_krx.data.pykrx_adapter._krx_stock", lambda: stub)
+
+
+def test_list_etf_symbols_zero_pads_and_returns_set(monkeypatch):
+    from quant_krx.data.pykrx_adapter import PyKrxAdapter
+
+    stub = _EtfStub(etf=["69500", "152100"])
+    _patch(monkeypatch, stub)
+
+    result = PyKrxAdapter().list_etf_symbols()
+    assert result == {"069500", "152100"}
+
+
+def test_list_etn_symbols(monkeypatch):
+    from quant_krx.data.pykrx_adapter import PyKrxAdapter
+
+    _patch(monkeypatch, _EtfStub(etn=["550001"]))
+    assert PyKrxAdapter().list_etn_symbols() == {"550001"}
+
+
+def test_list_etf_symbols_passes_as_of(monkeypatch):
+    from datetime import date
+
+    from quant_krx.data.pykrx_adapter import PyKrxAdapter
+
+    stub = _EtfStub(etf=[])
+    _patch(monkeypatch, stub)
+
+    PyKrxAdapter().list_etf_symbols(as_of=date(2020, 3, 2))
+    assert stub.calls == [("etf", "20200302")]
+
+
+def test_list_etf_symbols_swallows_failure(monkeypatch):
+    """조회 실패로 스크리닝 전체를 죽이지 않는다 — 제외가 덜 적용될 뿐."""
+    from quant_krx.data.pykrx_adapter import PyKrxAdapter
+
+    _patch(monkeypatch, _EtfStub(raise_on="etf"))
+    assert PyKrxAdapter().list_etf_symbols() == set()

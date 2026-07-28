@@ -34,6 +34,13 @@ class FixtureAdapter:
         """as_of는 무시한다 — 합성 픽스처에는 상장/폐지 이력이 없어 시점별 목록이 동일하다."""
         return self._load()["symbol"].unique().tolist()
 
+    def list_etf_symbols(self, as_of: date | None = None) -> set[str]:
+        """픽스처에는 ETF가 없다 — 빈 집합을 돌려 오프라인 실행에서 pykrx를 타지 않게 한다."""
+        return set()
+
+    def list_etn_symbols(self, as_of: date | None = None) -> set[str]:
+        return set()
+
     def fetch_ohlcv(self, symbol: str, start: date, end: date, interval: str = "1d") -> OHLCVData:
         df = self._load()
         mask = (df["symbol"] == symbol) & (df["date"] >= start) & (df["date"] <= end)

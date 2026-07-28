@@ -120,6 +120,17 @@ LLM_MOCK=true uv run python -m quant_krx run-daily --dry-run
 uv run python -m quant_krx run-daily --no-dry-run
 ```
 
+### 과거 시점 재현 (오프라인 검증)
+
+```bash
+# 네트워크·KRX 로그인 없이 특정 날짜의 리포트를 그대로 재현
+uv run python -m quant_krx run-daily --dry-run --data-source fixture --as-of 2024-12-02
+uv run python -m quant_krx show-reports --type A
+```
+
+`--as-of`(기본: 오늘)와 `--data-source`(`krx_dart` 기본 | `fixture`)는 리밸런싱일처럼 특정
+시점의 결과를 눈으로 확인하기 위한 검증용 옵션입니다. 기본값은 운영 동작과 동일합니다.
+
 ### 결과 리포트 조회
 
 `run-daily` 실행 후 종목별 신호와 리포트를 콘솔에 출력합니다.
@@ -273,8 +284,7 @@ uv run python -m quant_krx screen-delete my_screen
 
 **생존 편향 방지**: 과거 구간을 백테스트할 때 `as_of` 시점의 상장 종목 목록을 조회합니다
 (`pykrx get_market_ticker_list(date)`). 현재 상장 종목만 후보로 삼으면 그 사이 상장폐지된
-종목이 빠져 성과가 부풀려지기 때문입니다. 단 ETF/ETN 제외 필터는 pykrx가 시점별 목록을
-제공하지 않아 현재 기준이며, 이는 알려진 한계입니다.
+종목이 빠져 성과가 부풀려지기 때문입니다. ETF/ETN 제외 목록도 같은 시점 기준으로 조회합니다.
 
 **성능**: 스크리닝 결과는 `(조건 본문 해시, as_of)` 기준으로 DB에 캐시되어 반복 백테스트에서
 재사용됩니다. 조건을 수정하면 해시가 달라져 자동으로 무효화됩니다.
