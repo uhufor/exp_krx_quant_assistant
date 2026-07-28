@@ -4,6 +4,31 @@ from datetime import date, timedelta
 
 import pandas as pd
 
+from quant_krx.data.dart_fundamental import DISCLOSURE_GRACE_DAYS
+
+_QUARTER_END_MONTH_DAY = {1: "-03-31", 2: "-06-30", 3: "-09-30", 4: "-12-31"}
+
+
+def quarter_end(year: int, quarter: int) -> date:
+    return date.fromisoformat(f"{year}{_QUARTER_END_MONTH_DAY[quarter]}")
+
+
+def next_quarter(year: int, quarter: int) -> tuple[int, int]:
+    return (year + 1, 1) if quarter == 4 else (year, quarter + 1)
+
+
+def is_financials_stale(latest: tuple[int, int] | None, as_of: date) -> bool:
+    """`latest` 다음 분기가 이미 공시됐어야 하는데 없으면(또는 데이터 자체가 없으면) 갱신 대상.
+
+    공시 유예(`DISCLOSURE_GRACE_DAYS`)를 지나도 다음 분기가 안 들어와 있으면 "뒤처졌다"고
+    본다. 증분 수집(`screening/fundamental_sync.py`)과 신선도 점검(`data/freshness.py`)이
+    같은 기준을 써야 "수집은 건너뛰는데 점검은 경고하는" 모순이 생기지 않으므로 여기 둔다.
+    """
+    if latest is None:
+        return True
+    ny, nq = next_quarter(*latest)
+    return quarter_end(ny, nq) + timedelta(days=DISCLOSURE_GRACE_DAYS) <= as_of
+
 
 def existing_valuation_coverage(conn, symbols: list[str]) -> dict[str, tuple[date, date]]:
     """symbol별 fundamental_daily 기존 커버리지(min/max date)를 조회한다."""

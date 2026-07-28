@@ -16,6 +16,23 @@ _SIGNAL_LABEL = {
 }
 
 
+def _freshness_block(inp: ReportInput) -> str:
+    """데이터 신선도 경고 한 줄(D3). 정상이면 빈 문자열이라 리포트에 아무것도 추가되지 않는다.
+
+    바로 뒤에 오는 메타 blockquote와 같은 인용 블록으로 병합되면 한 줄로 붙어 보이므로,
+    빈 줄을 넣어 독립 문단으로 분리한다(마크다운의 soft line break 특성).
+    """
+    if not inp.freshness_warning:
+        return ""
+    return f"\n⚠️ **데이터 상태**: {inp.freshness_warning}\n\n"
+
+
+def _freshness_telegram(inp: ReportInput) -> str:
+    if not inp.freshness_warning:
+        return ""
+    return f"⚠️ {html_mod.escape(inp.freshness_warning)}\n"
+
+
 class ReportARenderer:
     """
     Report A: 순수 퀀트 결과 기반 결정론적 리포트.
@@ -46,7 +63,7 @@ class ReportARenderer:
             risk_section = f"\n### 리스크 플래그\n{flags}\n"
 
         content = f"""# [Report A] {sym_display} 퀀트 신호 리포트
-> **리포트 유형**: A (순수 퀀트 — LLM 미사용)
+{_freshness_block(inp)}> **리포트 유형**: A (순수 퀀트 — LLM 미사용)
 > **신호 ID**: `{sig.id}`
 > **실행 ID**: `{sig.run_id}`
 > **생성 일시**: {now_kst().strftime('%Y-%m-%d %H:%M KST')}
@@ -126,7 +143,7 @@ class ReportARenderer:
         body = "\n".join(f"| {r} |" for r in rows) if rows else f"| {fallback} |"
 
         content = f"""# [Report A] {sig.strategy_display_name} 포트폴리오 리포트
-> **리포트 유형**: A (순수 퀀트 — LLM 미사용)
+{_freshness_block(inp)}> **리포트 유형**: A (순수 퀀트 — LLM 미사용)
 > **신호 ID**: `{sig.id}`
 > **실행 ID**: `{sig.run_id}`
 > **생성 일시**: {now_kst().strftime('%Y-%m-%d %H:%M KST')}
@@ -255,7 +272,8 @@ class ReportARenderer:
 
         return (
             f"<b>[포트폴리오] {strategy}</b>\n"
-            f"<i>{date_str}</i>\n\n"
+            f"<i>{date_str}</i>\n"
+            f"{_freshness_telegram(inp)}\n"
             f"<b>요약</b>\n<blockquote>{summary}</blockquote>\n\n"
             f"<b>{section_title}</b>\n<blockquote>{body}</blockquote>\n\n"
             f"<b>성과</b>\n<blockquote>{metrics}</blockquote>\n\n"
@@ -312,7 +330,8 @@ class ReportARenderer:
 
         return (
             f"<b>[{sym}] 퀀트 신호 리포트</b>\n"
-            f"<i>{date_str}</i>\n\n"
+            f"<i>{date_str}</i>\n"
+            f"{_freshness_telegram(inp)}\n"
             f"<b>신호 요약</b>\n<blockquote>{summary}</blockquote>\n\n"
             f"<b>백테스트 성과</b>\n<blockquote>{metrics}</blockquote>"
             f"{risk_section}"

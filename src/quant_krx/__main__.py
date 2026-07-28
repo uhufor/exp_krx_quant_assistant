@@ -129,6 +129,74 @@ def run_daily(
         raise typer.Exit(1)
 
 
+@app.command("data-health")
+def data_health_cmd(
+    symbols: str = typer.Option(
+        None, "--symbols", help="콤마 구분 종목 목록(생략 시 watchlist)"
+    ),
+    as_of: str = typer.Option(None, "--as-of", help="기준일 YYYY-MM-DD(기본: 오늘)"),
+    skip_valuation: bool = typer.Option(
+        False, "--skip-valuation", help="밸류에이션 신선도 점검 생략"
+    ),
+    skip_financials: bool = typer.Option(
+        False, "--skip-financials", help="재무제표 신선도 점검 생략"
+    ),
+):
+    """데이터 신선도를 점검한다(수집·수정 없이 조회만).
+
+    데일리를 돌리지 않고도 "지금 DB의 데이터가 쓸 만한 상태인가"를 확인한다. 결측은 NaN으로
+    조용히 degrade되므로 낡은 값으로 결론이 나는 것을 막으려면 별도 점검이 필요하다.
+    """
+    from datetime import date, datetime
+
+    from quant_krx.data.freshness import check_freshness
+    from quant_krx.storage.db import Database
+
+    try:
+        as_of_date = datetime.strptime(as_of, "%Y-%m-%d").date() if as_of else date.today()
+    except ValueError as e:
+        console.print(f"[red]--as-of 형식이 올바르지 않습니다(YYYY-MM-DD): {as_of}[/red]")
+        raise typer.Exit(1) from e
+
+    settings = get_settings()
+    target = (
+        [s.strip() for s in symbols.split(",") if s.strip()]
+        if symbols
+        else settings.load_watchlist()
+    )
+    if not target:
+        console.print("[red]대상 종목이 없습니다(--symbols 지정 또는 watchlist 설정 필요)[/red]")
+        raise typer.Exit(1)
+
+    db = Database(settings.duckdb_path)
+    db.connect()
+    report = check_freshness(
+        db, target, as_of=as_of_date,
+        check_valuation=not skip_valuation, check_financials=not skip_financials,
+    )
+    db.close()
+
+    table = Table(title=f"데이터 신선도 ({as_of_date}, {report.checked_symbols}종목)")
+    table.add_column("항목")
+    table.add_column("상태")
+    table.add_column("영향 종목", justify="right")
+    if report.ok:
+        table.add_row("전체", "[green]정상[/green]", "-")
+    else:
+        for issue in report.issues:
+            table.add_row(
+                issue.kind,
+                f"[yellow]{issue.message}[/yellow]",
+                str(issue.affected) if issue.affected else "-",
+            )
+    console.print(table)
+
+    # 신선도 문제는 경고이지 실패가 아니다 — 스크립트에서 조건 분기할 수 있게 종료 코드로만
+    # 구분하지 않고, 정상/경고 모두 0으로 끝낸다(데일리를 막지 않는다는 원칙과 동일).
+    if not report.ok:
+        console.print("[dim]경고는 실행을 막지 않습니다. 필요한 수집 명령을 확인하세요.[/dim]")
+
+
 @app.command("show-reports")
 def show_reports(
     run_id: str = typer.Option(None, "--run-id", "-r", help="조회할 run_id (기본: 최근 실행)"),

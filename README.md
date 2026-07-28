@@ -38,7 +38,7 @@ uv run python -m quant_krx show-reports --type all
 | **[백테스트](docs/BACKTEST.md)** | 실행 방법, 실행 이력과 캐시, 결과 비교 |
 | **[포트폴리오](docs/PORTFOLIO.md)** | 자본 공유 다종목 운용, 리밸런싱, 동적 유니버스 |
 | **[스크리닝](docs/SCREENING.md)** | 전종목 조건 검색, 제외 필터, 생존 편향 방지 |
-| **[데일리 어시스트](docs/DAILY_ASSIST.md)** | 일일 파이프라인, 리포트 구조, 리밸런싱 권고, 자동 실행 |
+| **[데일리 어시스트](docs/DAILY_ASSIST.md)** | 일일 파이프라인, 리포트 구조, 리밸런싱 권고, 데이터 신선도, 자동 실행 |
 | **[GUI](docs/GUI.md)** | 웹 인터페이스 실행과 사용 예제 |
 
 **참고 자료**
