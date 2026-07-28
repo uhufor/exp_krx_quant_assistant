@@ -41,20 +41,22 @@ class PyKrxAdapter:
     def source_name(self) -> str:
         return "PyKrx"
 
-    def list_symbols(self, market: str = "KOSPI") -> list[str]:
+    def list_symbols(self, market: str = "KOSPI", as_of: date | None = None) -> list[str]:
+        """as_of 시점의 상장 종목 목록(생략 시 오늘). 과거 시점 백테스트의 생존 편향 방지."""
         try:
             s = _krx_stock()
-            today_str = _resolve_trading_day(s, date.today().strftime("%Y%m%d"))
+            target = as_of or date.today()
+            date_str = _resolve_trading_day(s, target.strftime("%Y%m%d"))
             if market in ("KOSPI", "KRX"):
-                kospi = s.get_market_ticker_list(today_str, market="KOSPI")
-                kosdaq = s.get_market_ticker_list(today_str, market="KOSDAQ")
+                kospi = s.get_market_ticker_list(date_str, market="KOSPI")
+                kosdaq = s.get_market_ticker_list(date_str, market="KOSDAQ")
                 for t in kospi:
                     self._market_cache[t.zfill(6)] = "KOSPI"
                 for t in kosdaq:
                     self._market_cache[t.zfill(6)] = "KOSDAQ"
                 tickers = kospi + kosdaq
             else:
-                tickers = s.get_market_ticker_list(today_str, market=market)
+                tickers = s.get_market_ticker_list(date_str, market=market)
                 for t in tickers:
                     self._market_cache[t.zfill(6)] = market
             return [t.zfill(6) for t in tickers]

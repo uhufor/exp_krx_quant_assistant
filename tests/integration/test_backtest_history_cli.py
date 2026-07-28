@@ -206,3 +206,92 @@ def test_backtest_show_reports_portfolio_mode(monkeypatch, tmp_path):
     assert result.exit_code == 0
     assert "포트폴리오" in result.stdout
     assert "리밸런싱 배분" in result.stdout
+
+
+# --- 동적 유니버스 (P2) ---
+
+
+def _seed_dynamic(tmp_path, monkeypatch) -> None:
+    from quant_krx.data.fixture_adapter import FixtureAdapter
+    from quant_krx.screening.definition import RankPredicate, ScanUniverse, ScreeningCondition
+    from quant_krx.screening.service import ScreeningService
+    from quant_krx.strategy.definition import PortfolioPolicy
+
+    db_path = tmp_path / "test.duckdb"
+    monkeypatch.setenv("DUCKDB_PATH", str(db_path))
+    db = Database(path=db_path)
+    db.connect()
+
+    ScreeningService(db, FixtureAdapter()).upsert_condition(
+        ScreeningCondition(
+            id="tv_top2", name="거래대금 Top2", version="1",
+            universe=ScanUniverse(market="KRX", exclusion_filters=frozenset()),
+            root=RankPredicate(
+                factor_id="trading_value", column="trading_value",
+                rank_metric="desc", top_n=2,
+            ),
+        ),
+        now=NOW,
+    )
+
+    svc = WorkspaceService(db)
+    svc.upsert_rule(
+        Rule(
+            id="entry_rule", name="entry", version="1",
+            root=Predicate(
+                FactorOperand("sma", "sma", {"window": 5}), ">",
+                FactorOperand("sma", "sma", {"window": 20}),
+            ),
+        ),
+        now=NOW,
+    )
+    svc.upsert_strategy(
+        StrategyDefinition(
+            id="dyn_test", name="dyn_test", version="1",
+            factor_refs=(FactorRef("sma", {"window": 5}), FactorRef("sma", {"window": 20})),
+            universe=Universe(kind="screening", screening_id="tv_top2"),
+            rule=RuleBinding(entry=("entry_rule",)),
+            portfolio=PortfolioPolicy(max_positions=2, rebalance="monthly"),
+        ),
+        now=NOW,
+    )
+    db.close()
+
+
+def _dynamic_backtest(*extra: str):
+    return runner.invoke(
+        app,
+        ["strategy-backtest", "dyn_test", "--data-source", "fixture",
+         "--start", "2024-01-02", "--end", "2024-12-18", *extra],
+    )
+
+
+def test_dynamic_universe_cli_runs_and_reports_mode(monkeypatch, tmp_path):
+    _seed_dynamic(tmp_path, monkeypatch)
+    result = _dynamic_backtest()
+
+    assert result.exit_code == 0, result.stdout
+    assert "동적 유니버스" in result.stdout
+    assert "유니버스 스크리닝" in result.stdout
+    assert "리밸런싱 배분" in result.stdout
+
+
+def test_dynamic_universe_cli_caches_screening_results(monkeypatch, tmp_path):
+    """두 번째 실행은 스크리닝 결과를 DB 캐시에서 재사용한다."""
+    _seed_dynamic(tmp_path, monkeypatch)
+    _dynamic_backtest()
+
+    db = Database(path=tmp_path / "test.duckdb")
+    db.connect()
+    try:
+        with db.cursor() as conn:
+            cached = conn.execute(
+                "SELECT count(*) FROM screening_result_cache WHERE condition_id='tv_top2'"
+            ).fetchone()[0]
+    finally:
+        db.close()
+    assert cached > 0
+
+    result = _dynamic_backtest()
+    assert result.exit_code == 0
+    assert "저장된 결과 재사용" in result.stdout

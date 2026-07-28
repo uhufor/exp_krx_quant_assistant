@@ -30,7 +30,8 @@ class FixtureAdapter:
             self._df["date"] = self._df["date"].dt.date
         return self._df
 
-    def list_symbols(self, market: str = "KRX") -> list[str]:
+    def list_symbols(self, market: str = "KRX", as_of: date | None = None) -> list[str]:
+        """as_of는 무시한다 — 합성 픽스처에는 상장/폐지 이력이 없어 시점별 목록이 동일하다."""
         return self._load()["symbol"].unique().tolist()
 
     def fetch_ohlcv(self, symbol: str, start: date, end: date, interval: str = "1d") -> OHLCVData:

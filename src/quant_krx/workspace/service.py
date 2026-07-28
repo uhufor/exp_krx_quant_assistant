@@ -20,7 +20,7 @@ from quant_krx.storage.db import Database
 from quant_krx.strategy.definition import StrategyDefinition
 from quant_krx.strategy.validation import is_runnable as strategy_is_runnable
 from quant_krx.strategy.validation import validate_definition
-from quant_krx.workspace.backtest import BacktestReport, run_backtest
+from quant_krx.workspace.backtest import BacktestReport, UniverseResolver, run_backtest
 from quant_krx.workspace.errors import WorkspaceError, not_found_hint
 from quant_krx.workspace.fingerprint import (
     cache_key,
@@ -255,6 +255,7 @@ class WorkspaceService:
         benchmark_symbol: str | None = None,
         use_cache: bool = True,
         now: datetime | None = None,
+        resolve_universe: UniverseResolver | None = None,
     ) -> BacktestReport:
         """전략을 백테스트하고 결과를 `backtest_runs`에 기록한다.
 
@@ -292,7 +293,7 @@ class WorkspaceService:
             defn, data,
             fees=fees, slippage=slippage, benchmark=benchmark,
             resolve_formula=self.get_formula, resolve_rule=self.get_rule,
-            start=start, end=end,
+            start=start, end=end, resolve_universe=resolve_universe,
         )
         run_id = f"{executed_at:%Y%m%d}-{uuid.uuid4().hex[:8]}"
         report = dataclasses.replace(report, run_id=run_id, executed_at=executed_at)

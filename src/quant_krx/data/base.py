@@ -43,7 +43,14 @@ class DataProvider(Protocol):
     @property
     def source_name(self) -> str: ...
 
-    def list_symbols(self, market: str = "KRX") -> list[str]: ...
+    def list_symbols(self, market: str = "KRX", as_of: date | None = None) -> list[str]:
+        """상장 종목 코드 목록. as_of를 주면 **그 시점 기준** 목록을 반환한다.
+
+        as_of가 중요한 이유: 과거 구간을 백테스트하면서 "현재 상장 종목"만 후보로 삼으면
+        그 사이 상장폐지된 종목이 통째로 빠져 성과가 부풀려진다(생존 편향). 시점별 목록을
+        지원하지 않는 provider는 as_of를 무시할 수 있으나, 그 경우 편향이 남는다.
+        """
+        ...
 
     def fetch_ohlcv(
         self,

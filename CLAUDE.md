@@ -122,7 +122,7 @@ period_end desc)` 정렬 후 그룹 최상단 선택)가 담당하며, 수집 �
 - `Signal` → DuckDB `signals` 저장 → `ReportARenderer`(결정론적) + `ReportBRenderer`(LLM)
 - `RenderedReport` → DuckDB `reports` 저장 → `TelegramNotifier.send()` → `notification_outbox`
 
-### DuckDB 스키마 (17개 테이블, `Database.connect()`에서 모두 실행)
+### DuckDB 스키마 (18개 테이블, `Database.connect()`에서 모두 실행)
 
 | 그룹 | 파일 | 테이블 |
 |---|---|---|
@@ -130,7 +130,8 @@ period_end desc)` 정렬 후 그룹 최상단 선택)가 담당하며, 수집 �
 | 펀더멘털 | `data/schema.py` | `fundamental_daily`(밸류에이션 일별, `close`는 `ohlcv_daily.close`와 동일 원천), `financial_statements`(분기, PK `(symbol, fiscal_year, fiscal_quarter, statement_scope)`) |
 | 선언형 정의 | `storage/definition_schema.py` | `formulas`, `rules`, `strategies` |
 | 워크스페이스 | `storage/workspace_schema.py` | `strategy_activation`, `strategy_templates` |
-| 스크리닝 | `data/screening_schema.py` | `screening_conditions` (조건 정의만 — 실행 결과 테이블 없음) |
+| 스크리닝 | `data/screening_schema.py` | `screening_conditions` (조건 정의) |
+| 스크리닝 캐시 | `data/screening_cache_schema.py` | `screening_result_cache` (P2 — 동적 유니버스 반복 실행 비용 절감용) |
 | 백테스트 이력 | `storage/backtest_schema.py` | `backtest_runs` (P3 — 파라미터·지표·자산곡선, 거래내역은 미저장) |
 
 스키마 진화는 **additive만** — 신규 테이블 추가는 되고 기존 DDL 변경은 금지(공통 불변식 6).
@@ -168,6 +169,23 @@ cash_sharing=True, call_seq='auto')`** 라는 점이다(신호로는 "최대 N�
 계약 게이트 세 곳 모두에 배선되어 있다**(`strategy/validation.py`, `workspace/service.py::
 _transitive_closure`, `workspace/evaluation.py::_required_data_by_kind`) — 새 참조 슬롯을 추가할
 때 이 세 곳을 함께 고치지 않으면 저장은 되는데 실행에서 터지거나 조용히 빈 결과가 나온다.
+
+**동적 유니버스(P2)**: `Universe.kind="screening"`이면 리밸런싱 시점마다 스크리닝을 재평가해
+대상 종목을 교체한다. **`portfolio` 정책이 없으면 저장이 거부된다**(종목별 독립 모드에서는
+시점별 교체가 의미를 갖지 않음). 닭-달걀 문제(대상 종목을 알아야 OHLCV를 수집하는데 종목은
+시점마다 정해짐)는 `workspace/dynamic_universe.py`가 푼다 — 달력 기준 **앵커** 날짜마다 미리
+스크리닝해 합집합을 수집 대상으로 삼고, 엔진이 실제 거래일로 물으면 **그 이하 최근 앵커
+결과를 backward 매칭**해 돌려준다(매칭이 없으면 수집하지 않은 종목이 후보에 올라 조용히
+탈락한다). `workspace`는 `screening`을 import하지 않고 `UniverseResolver`를 주입받는다(형제
+관계 유지) — 주입은 CLI(`__main__.py`)와 API(`api/routers/backtests.py`)가 담당한다.
+
+**생존 편향**: `DataProvider.list_symbols(market, as_of=None)`의 `as_of`는 과거 구간 백테스트에서
+필수다 — 없으면 현재 상장 종목만 후보가 되어 상장폐지 종목이 빠지고 성과가 부풀려진다.
+`resolve_scan_universe(..., as_of=)` → `PyKrxAdapter.list_symbols`가 `get_market_ticker_list(date)`로
+전달한다. ETF/ETN 제외 필터는 pykrx가 시점별 목록을 주지 않아 현재 기준(알려진 한계).
+스크리닝 결과는 `screening_result_cache`에 `(condition_id, 조건 본문 해시, as_of)`로 캐시된다 —
+EPIC-03 D5(결과 미저장)를 반복 백테스트 비용 때문에 완화한 것이며, 조건 수정 시 해시가 바뀌어
+자동 무효화되고 조건 삭제 시 함께 지워진다.
 
 **스키마 마이그레이션**: `Database._ensure_schema()`는 누락 테이블이 있을 때만 DDL을 실행한다
 (요청마다 커넥션을 여는 GUI에서 동시 `CREATE TABLE`이 DuckDB 카탈로그 write-write 충돌을

@@ -363,3 +363,106 @@ def test_invalid_portfolio_policy_rejected(tmp_path) -> None:
     }
     resp = client.put("/api/strategies/bad_pf", json=bad)
     assert resp.status_code >= 400
+
+
+# --- 동적 유니버스 (P2) ---
+
+_SCREENING_BODY = {
+    "name": "거래대금 Top2",
+    "version": "1",
+    "universe": {"market": "KRX", "exclusion_filters": []},
+    "root": {
+        "node": "rank_predicate",
+        "factor_id": "trading_value",
+        "column": "trading_value",
+        "rank_metric": "desc",
+        "top_n": 2,
+        "params": {},
+    },
+}
+
+DYNAMIC_STRATEGY_BODY = {
+    **STRATEGY_BODY,
+    "universe": {"kind": "screening", "screening_id": "tv_top2", "symbols": []},
+    "portfolio": {
+        "max_positions": 2, "rebalance": "monthly", "sizing": "equal_weight",
+        "initial_cash": 10_000_000, "ranking": None,
+    },
+}
+
+
+def _seed_dynamic_strategy(client: TestClient) -> None:
+    client.put("/api/rules/entry_rule", json=ENTRY_RULE)
+    client.put("/api/rules/exit_rule", json=EXIT_RULE)
+    assert client.put("/api/screenings/tv_top2", json=_SCREENING_BODY).status_code in (200, 201)
+    resp = client.put("/api/strategies/dyn_strategy", json=DYNAMIC_STRATEGY_BODY)
+    assert resp.status_code in (200, 201), resp.text
+
+
+def test_dynamic_universe_strategy_roundtrips(tmp_path) -> None:
+    client = _client(tmp_path)
+    _seed_dynamic_strategy(client)
+
+    body = client.get("/api/strategies/dyn_strategy").json()
+    assert body["universe"]["kind"] == "screening"
+    assert body["universe"]["screening_id"] == "tv_top2"
+
+
+def test_dynamic_universe_without_portfolio_rejected(tmp_path) -> None:
+    """동적 유니버스는 portfolio 없이는 저장이 거부되어야 한다."""
+    client = _client(tmp_path)
+    client.put("/api/rules/entry_rule", json=ENTRY_RULE)
+    client.put("/api/rules/exit_rule", json=EXIT_RULE)
+    client.put("/api/screenings/tv_top2", json=_SCREENING_BODY)
+
+    bad = {**DYNAMIC_STRATEGY_BODY, "portfolio": None}
+    resp = client.put("/api/strategies/bad_dyn", json=bad)
+    assert resp.status_code >= 400
+    assert "portfolio" in resp.text
+
+
+def test_dynamic_universe_backtest_runs(tmp_path) -> None:
+    client = _client(tmp_path)
+    _seed_dynamic_strategy(client)
+
+    resp = client.post(
+        "/api/backtests",
+        json={
+            "strategy_id": "dyn_strategy",
+            "start": "2024-01-02",
+            "end": "2024-12-18",
+            "data_source": "fixture",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    assert body["is_portfolio"] is True
+    assert body["weights"]
+    # 스크리닝이 Top2만 통과시키므로 어느 시점에도 3종목 이상 담기지 않는다.
+    for allocation in body["weights"].values():
+        assert len(allocation) <= 2
+
+
+def test_dynamic_universe_screening_change_alters_result(tmp_path) -> None:
+    """스크리닝 조건을 바꾸면 유니버스가 달라져 결과도 달라져야 한다."""
+    client = _client(tmp_path)
+    _seed_dynamic_strategy(client)
+    first = client.post(
+        "/api/backtests",
+        json={"strategy_id": "dyn_strategy", "start": "2024-01-02",
+              "end": "2024-12-18", "data_source": "fixture"},
+    ).json()
+
+    narrowed = {**_SCREENING_BODY, "root": {**_SCREENING_BODY["root"], "top_n": 1}}
+    client.put("/api/screenings/tv_top2", json=narrowed)
+
+    second = client.post(
+        "/api/backtests",
+        json={"strategy_id": "dyn_strategy", "start": "2024-01-02",
+              "end": "2024-12-18", "data_source": "fixture"},
+    ).json()
+
+    for allocation in second["weights"].values():
+        assert len(allocation) <= 1
+    assert second["weights"] != first["weights"]

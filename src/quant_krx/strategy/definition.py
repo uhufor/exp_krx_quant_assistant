@@ -37,7 +37,16 @@ class FactorRef(CanonicalEq):
 
 @dataclass(frozen=True, eq=False)
 class Universe(CanonicalEq):
+    """실행 대상 종목 집합.
+
+    kind="static"이면 고정 목록(symbols), kind="screening"이면 리밸런싱 시점마다
+    스크리닝 조건을 재평가해 종목을 갈아끼운다(P2). 두 형상을 whitelist fail-closed로
+    분리해 "screening_id를 넣었는데 조용히 symbols가 쓰이는" 모호함을 없앤다.
+    """
+
     symbols: tuple[str, ...] = ()
+    kind: str = "static"
+    screening_id: str = ""
 
     def __post_init__(self) -> None:
         invalid = [s for s in self.symbols if not _KRX_SYMBOL_RE.match(s)]
@@ -45,13 +54,42 @@ class Universe(CanonicalEq):
             raise MalformedDefinitionError(
                 f"symbols는 KRX 6자리 숫자 형식이어야 합니다(위반: {invalid})"
             )
+        if self.kind == "static":
+            if self.screening_id:
+                raise MalformedDefinitionError(
+                    "universe.kind='static'에는 screening_id를 지정할 수 없습니다"
+                )
+        elif self.kind == "screening":
+            if not self.screening_id:
+                raise MalformedDefinitionError(
+                    "universe.kind='screening'에는 screening_id가 필요합니다"
+                )
+            if self.symbols:
+                raise MalformedDefinitionError(
+                    "universe.kind='screening'에는 symbols를 지정할 수 없습니다"
+                    "(대상 종목은 스크리닝이 시점마다 결정합니다)"
+                )
+        else:
+            raise MalformedDefinitionError(
+                f"미지의 universe.kind '{self.kind}'(허용: static, screening)"
+            )
+
+    @property
+    def is_dynamic(self) -> bool:
+        return self.kind == "screening"
 
     def to_dict(self) -> dict[str, Any]:
-        return {"symbols": list(self.symbols)}
+        if self.kind == "screening":
+            return {"kind": "screening", "screening_id": self.screening_id, "symbols": []}
+        return {"kind": "static", "symbols": list(self.symbols)}
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> Universe:
-        return cls(symbols=tuple(d.get("symbols", ())))
+        # kind 미기재(v1 정의)는 static으로 해석한다 — 기존 저장 정의 하위호환.
+        kind = d.get("kind") or "static"
+        if kind == "screening":
+            return cls(kind="screening", screening_id=d.get("screening_id", ""))
+        return cls(symbols=tuple(d.get("symbols", ())), kind=kind)
 
 
 @dataclass(frozen=True, eq=False)

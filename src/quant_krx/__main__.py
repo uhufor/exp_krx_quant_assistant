@@ -475,21 +475,50 @@ def strategy_backtest_cmd(
         db.close()
         raise typer.Exit(1)
 
-    requested_symbols = [s.strip() for s in symbols.split(",")] if symbols else None
-    sym_list = resolve_backtest_symbols(defn, requested_symbols)
-    if not sym_list:
-        console.print(
-            "[red]대상 종목이 없습니다. --symbols 지정 또는 전략 universe.symbols 설정 필요[/red]"
-        )
-        db.close()
-        raise typer.Exit(1)
-
     end_date = datetime.strptime(end, "%Y-%m-%d").date() if end else date.today()
     start_date = (
         datetime.strptime(start, "%Y-%m-%d").date()
         if start
         else end_date - timedelta(days=365 * 5)
     )
+
+    requested_symbols = [s.strip() for s in symbols.split(",")] if symbols else None
+    universe_plan = None
+    if defn.universe.is_dynamic and not requested_symbols:
+        from quant_krx.workspace.data_loading import prepare_dynamic_universe
+
+        screening_svc = _screening_service_for(db, data_source)
+
+        def _resolve_screening(condition_id: str, as_of: date) -> list[str]:
+            return screening_svc.resolve_symbols(condition_id, as_of)
+
+        def _on_plan_progress(done: int, total: int, anchor: date) -> None:
+            console.print(f"[dim]유니버스 스크리닝 {done}/{total} ({anchor})[/dim]")
+
+        console.print(
+            f"[cyan]동적 유니버스[/cyan] — 스크리닝 '{defn.universe.screening_id}'을(를) "
+            f"{defn.portfolio.rebalance} 주기로 재평가합니다"
+        )
+        try:
+            universe_plan = prepare_dynamic_universe(
+                defn, start=start_date, end=end_date,
+                resolve=_resolve_screening, on_progress=_on_plan_progress,
+            )
+        except Exception as e:  # noqa: BLE001 — 사유를 한국어로 보여주고 non-zero 종료
+            console.print(f"[red]동적 유니버스 계획 수립 실패: {e}[/red]")
+            db.close()
+            raise typer.Exit(1) from e
+        sym_list = universe_plan.symbols
+    else:
+        sym_list = resolve_backtest_symbols(defn, requested_symbols)
+
+    if not sym_list:
+        console.print(
+            "[red]대상 종목이 없습니다. --symbols 지정 또는 전략 universe 설정 필요"
+            "(동적 유니버스라면 어느 시점에도 통과 종목이 없었습니다)[/red]"
+        )
+        db.close()
+        raise typer.Exit(1)
 
     def _warn_benchmark_failure(bm: str, exc: Exception) -> None:
         console.print(f"[yellow]벤치마크 '{bm}' 수집 실패(무시하고 계속): {exc}[/yellow]")
@@ -521,6 +550,7 @@ def strategy_backtest_cmd(
             strategy_id, data=data, start=start_date, end=end_date,
             fees=fees, slippage=slippage, benchmark=benchmark_df,
             data_source=data_source, benchmark_symbol=benchmark, use_cache=not no_cache,
+            resolve_universe=universe_plan.eligible_at if universe_plan else None,
         )
     except WorkspaceError as e:
         console.print(f"[red]백테스트 실패: {e}[/red]")
@@ -1113,16 +1143,21 @@ def strategy_import_cmd(
     db.close()
 
 
-def _open_screening(data_source: str = "fixture"):
+def _screening_service_for(db, data_source: str = "fixture"):
+    """이미 열린 Database로 ScreeningService를 만든다(백테스트의 동적 유니버스 경로 공용)."""
     from quant_krx.screening.service import ScreeningService
-    from quant_krx.storage.db import Database
     from quant_krx.workspace.data_loading import _ohlcv_provider_for
+
+    return ScreeningService(db, _ohlcv_provider_for(data_source))
+
+
+def _open_screening(data_source: str = "fixture"):
+    from quant_krx.storage.db import Database
 
     settings = get_settings()
     db = Database(settings.duckdb_path)
     db.connect()
-    provider = _ohlcv_provider_for(data_source)
-    return db, ScreeningService(db, provider)
+    return db, _screening_service_for(db, data_source)
 
 
 @app.command("screen-create")

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -171,7 +173,7 @@ class ScreeningService:
             as_of = date.today()
 
         universe_symbols = resolve_scan_universe(
-            self._provider, cond.universe.exclusion_filters
+            self._provider, cond.universe.exclusion_filters, as_of=as_of
         )
 
         rank_membership: dict[RankPredicate | FactorRankPredicate, set[str]] = dict(
@@ -272,6 +274,42 @@ class ScreeningService:
             (s, metadata.get(s, {}).get("name", ""), metadata.get(s, {}).get("market", ""))
             for s in passed
         ]
+
+    # --- 동적 유니버스용 종목 조회 (P2) ---
+
+    def resolve_symbols(
+        self, condition_id: str, as_of: date, *, use_cache: bool = True
+    ) -> list[str]:
+        """as_of 시점 통과 종목 코드만 반환한다(이름·시장 조회 없음).
+
+        백테스트의 동적 유니버스가 리밸런싱 시점마다 호출하는 진입점이다. 같은
+        (조건 본문, as_of)는 결과가 같으므로 DB에 캐시해 반복 백테스트에서 재사용한다 —
+        캐시 키에 조건 본문 해시가 들어가므로 조건을 수정하면 자동으로 무효화된다.
+        """
+        cond = self.get_condition(condition_id)
+        if cond is None:
+            raise ScreeningError(f"스크리닝 조건 '{condition_id}'을(를) 찾을 수 없습니다")
+        condition_hash = _condition_hash(cond)
+
+        if use_cache:
+            cached = self._db.get_cached_screening_result(condition_id, condition_hash, as_of)
+            if cached is not None:
+                return list(cached)
+
+        symbols = [symbol for symbol, *_ in self.run(condition_id, as_of=as_of)]
+        self._db.put_cached_screening_result(
+            condition_id, condition_hash, as_of, symbols, now=datetime.now()
+        )
+        return symbols
+
+    def clear_cache(self, condition_id: str | None = None) -> int:
+        return self._db.clear_screening_cache(condition_id)
+
+
+def _condition_hash(cond: ScreeningCondition) -> str:
+    """조건 본문의 정규 해시 — 조건이 바뀌면 캐시가 자동 무효화되도록 하는 키."""
+    payload = json.dumps(cond.to_dict(), sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _prepare_symbol_ohlcv(raw: pd.DataFrame) -> pd.DataFrame:

@@ -178,6 +178,20 @@ def _validate_ranking(defn: StrategyDefinition, errors: list[str]) -> None:
         )
 
 
+def _validate_dynamic_universe(defn: StrategyDefinition, errors: list[str]) -> None:
+    """동적(스크리닝) 유니버스는 포트폴리오 모드에서만 의미가 있다(P2, 사용자 확정).
+
+    종목별 독립 백테스트에서는 "시점마다 대상 종목이 바뀐다"는 개념이 성립하지 않는다 —
+    종목마다 자기 자본으로 따로 돌기 때문에 교체가 아무 의미도 만들지 않는다. 저장 시점에
+    거부해 "설정은 됐는데 실행 결과가 무의미한" 조합을 원천 차단한다.
+    """
+    if defn.universe.is_dynamic and defn.portfolio is None:
+        errors.append(
+            "universe.kind='screening'은 portfolio 정책과 함께 사용해야 합니다"
+            "(종목별 독립 백테스트에서는 시점별 종목 교체가 의미를 갖지 않습니다)"
+        )
+
+
 def validate_definition(
     defn: StrategyDefinition,
     *,
@@ -196,6 +210,7 @@ def validate_definition(
         _validate_factor_ref(factor_ref, errors)
 
     _validate_ranking(defn, errors)
+    _validate_dynamic_universe(defn, errors)
 
     if defn.rule is not None and resolve_rule is not None:
         transitive, walk_errors, incomplete = _transitive_factor_ids(

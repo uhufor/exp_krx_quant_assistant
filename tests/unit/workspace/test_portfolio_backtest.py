@@ -16,6 +16,7 @@ from quant_krx.strategy.definition import (
     Universe,
 )
 from quant_krx.workspace.backtest import PORTFOLIO_KEY, run_backtest
+from quant_krx.workspace.errors import EvaluationError
 
 SYMBOLS = ["000660", "005930", "006400"]
 INITIAL_CASH = 10_000_000.0
@@ -270,3 +271,93 @@ def test_portfolio_backtest_is_deterministic():
 
     assert first.metrics.total_return == pytest.approx(second.metrics.total_return)
     assert first.weights == second.weights
+
+
+# --- 동적 유니버스 연동 (P2) ---
+
+
+def _dynamic_defn(policy: PortfolioPolicy) -> StrategyDefinition:
+    return StrategyDefinition(
+        id="dyn", name="dyn", version="1",
+        factor_refs=(FactorRef("price"),),
+        universe=Universe(kind="screening", screening_id="cond1"),
+        rule=RuleBinding(entry=("always_in",)),
+        portfolio=policy,
+    )
+
+
+def _run_dynamic(policy: PortfolioPolicy, series, resolve_universe, **kwargs):
+    return run_backtest(
+        _dynamic_defn(policy), _data(series),
+        fees=0.0, slippage=0.0,
+        resolve_formula=_resolve_formula, resolve_rule=_resolve_rule,
+        resolve_universe=resolve_universe, **kwargs,
+    )
+
+
+def test_dynamic_universe_restricts_candidates():
+    """스크리닝을 통과한 종목만 담겨야 한다."""
+    policy = PortfolioPolicy(max_positions=3, rebalance="monthly")
+    only_one = lambda _cond, _as_of: ["005930"]  # noqa: E731
+
+    report = _run_dynamic(policy, {s: _rising(90, 1.0) for s in SYMBOLS}, only_one)
+
+    for allocation in report.weights.values():
+        assert set(allocation) <= {"005930"}
+
+
+def test_dynamic_universe_changes_over_time():
+    """시점마다 다른 종목이 선택되면 배분도 따라 바뀌어야 한다."""
+    policy = PortfolioPolicy(max_positions=1, rebalance="monthly")
+
+    def _resolve(_cond, as_of):
+        return ["005930"] if as_of.month <= 2 else ["006400"]
+
+    report = _run_dynamic(policy, {s: _rising(120, 1.0) for s in SYMBOLS}, _resolve)
+
+    dates = sorted(report.weights)
+    early = report.weights[dates[0]]
+    late = report.weights[dates[-1]]
+    assert set(early) == {"005930"}
+    assert set(late) == {"006400"}
+
+
+def test_dynamic_universe_empty_period_holds_nothing():
+    """어느 시점에 통과 종목이 0이면 그 구간은 보유가 없어야 한다."""
+    policy = PortfolioPolicy(max_positions=2, rebalance="monthly")
+
+    def _resolve(_cond, as_of):
+        return [] if as_of.month == 2 else ["005930"]
+
+    report = _run_dynamic(policy, {s: _rising(120, 1.0) for s in SYMBOLS}, _resolve)
+
+    february = [d for d in report.weights if d.startswith("2024-02")]
+    assert february, "2월 리밸런싱이 존재해야 한다"
+    for date_key in february:
+        assert report.weights[date_key] == {}
+
+
+def test_dynamic_universe_without_resolver_fails_clearly():
+    """리졸버 없이 동적 유니버스를 실행하면 조용히 전체 종목을 쓰지 않고 명확히 실패한다."""
+    policy = PortfolioPolicy(max_positions=2, rebalance="monthly")
+    with pytest.raises(EvaluationError, match="유니버스 리졸버가 주입되지"):
+        run_backtest(
+            _dynamic_defn(policy), _data({s: _rising(60, 1.0) for s in SYMBOLS}),
+            fees=0.0, slippage=0.0,
+            resolve_formula=_resolve_formula, resolve_rule=_resolve_rule,
+        )
+
+
+def test_dynamic_universe_resolver_called_once_per_rebalance_date():
+    """같은 리밸런싱일에 대해 스크리닝을 중복 호출하지 않는다(엔진 내 캐시)."""
+    policy = PortfolioPolicy(max_positions=2, rebalance="monthly")
+    calls: list[date] = []
+
+    def _resolve(_cond, as_of):
+        calls.append(as_of)
+        return ["005930"]
+
+    report = _run_dynamic(policy, {s: _rising(120, 1.0) for s in SYMBOLS}, _resolve)
+
+    assert len(calls) == len(report.weights)
+    assert len(calls) == len(set(calls))

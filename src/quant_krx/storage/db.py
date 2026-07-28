@@ -13,6 +13,7 @@ import duckdb
 import pandas as pd
 
 from quant_krx.data.schema import FUNDAMENTAL_SCHEMA_SQL
+from quant_krx.data.screening_cache_schema import SCREENING_CACHE_SCHEMA_SQL
 from quant_krx.data.screening_schema import SCREENING_SCHEMA_SQL
 from quant_krx.formula.definition import Formula
 from quant_krx.formula.validation import validate_formula_strict
@@ -30,6 +31,7 @@ _SCHEMA_STATEMENTS = (
     SCHEMA_SQL,
     FUNDAMENTAL_SCHEMA_SQL,
     SCREENING_SCHEMA_SQL,
+    SCREENING_CACHE_SCHEMA_SQL,
     DEFINITION_SCHEMA_SQL,
     WORKSPACE_SCHEMA_SQL,
     BACKTEST_SCHEMA_SQL,
@@ -458,6 +460,56 @@ class Database:
     def delete_screening_condition(self, id_: str) -> None:
         with self.cursor() as conn:
             conn.execute("DELETE FROM screening_conditions WHERE id=?", [id_])
+            # 조건이 사라지면 그 캐시도 의미가 없다(id 재사용 시 오염 방지).
+            conn.execute("DELETE FROM screening_result_cache WHERE condition_id=?", [id_])
+
+    # --- 스크리닝 결과 캐시 (P2) ---
+
+    def get_cached_screening_result(
+        self, condition_id: str, condition_hash: str, as_of: date
+    ) -> list[str] | None:
+        with self.cursor() as conn:
+            row = conn.execute(
+                "SELECT symbols FROM screening_result_cache"
+                " WHERE condition_id=? AND condition_hash=? AND as_of=?",
+                [condition_id, condition_hash, as_of],
+            ).fetchone()
+        return json.loads(row[0]) if row is not None else None
+
+    def put_cached_screening_result(
+        self,
+        condition_id: str,
+        condition_hash: str,
+        as_of: date,
+        symbols: list[str],
+        *,
+        now: datetime,
+    ) -> None:
+        with self.cursor() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO screening_result_cache"
+                " (condition_id, condition_hash, as_of, symbols, computed_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                [condition_id, condition_hash, as_of, json.dumps(symbols), now],
+            )
+
+    def clear_screening_cache(self, condition_id: str | None = None) -> int:
+        """캐시 삭제. condition_id 생략 시 전체. 삭제된 행 수 반환."""
+        with self.cursor() as conn:
+            if condition_id is None:
+                count = conn.execute(
+                    "SELECT count(*) FROM screening_result_cache"
+                ).fetchone()[0]
+                conn.execute("DELETE FROM screening_result_cache")
+            else:
+                count = conn.execute(
+                    "SELECT count(*) FROM screening_result_cache WHERE condition_id=?",
+                    [condition_id],
+                ).fetchone()[0]
+                conn.execute(
+                    "DELETE FROM screening_result_cache WHERE condition_id=?", [condition_id]
+                )
+        return int(count)
 
     # --- 백테스트 실행 이력 (P3) ---
 
