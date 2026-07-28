@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import math
 import uuid
 from dataclasses import dataclass, field
@@ -9,6 +10,12 @@ from typing import Any
 
 from quant_krx.config.profiles import EvaluationRules, get_profile
 from quant_krx.quant.base import BacktestMetrics, BacktestResult
+from quant_krx.signals.rebalance import RebalancePlan
+
+# 포트폴리오 신호의 symbol 자리에 들어가는 의사 키 — 계좌 단위임을 나타낸다.
+# workspace.backtest.PORTFOLIO_KEY와 같은 값이어야 하며(리포트·조회에서 동일 취급),
+# signals/가 workspace/를 import하지 않도록 값만 맞춘다.
+PORTFOLIO_SYMBOL = "__portfolio__"
 
 
 class SignalType(str, Enum):
@@ -17,6 +24,9 @@ class SignalType(str, Enum):
     HOLD = "hold"
     WATCH = "watch"
     NO_SIGNAL = "no_signal"
+    # 포트폴리오 전략 전용(R05) — 오늘이 리밸런싱일이고 실제 매매가 필요할 때.
+    # signals.signal_type이 VARCHAR이므로 열거 추가에 DDL 변경이 필요 없다(additive).
+    REBALANCE = "rebalance"
 
 
 @dataclass
@@ -145,6 +155,40 @@ class SignalClassifier:
         signal_date: date | None = None,
     ) -> list[Signal]:
         return [self.classify(r, signal_date) for r in results]
+
+    def classify_portfolio(
+        self,
+        result: BacktestResult,
+        plan: RebalancePlan,
+        *,
+        signal_date: date | None = None,
+        strategy_display_name: str = "",
+    ) -> Signal:
+        """포트폴리오 전략 → 계좌 단위 신호 1건(R05).
+
+        점수·리스크 플래그는 종목별 경로와 동일한 규칙을 그대로 쓴다(지표 원천만 포트폴리오
+        전체 성과로 바뀔 뿐이라 별도 규칙을 둘 이유가 없다). 다른 점은 두 가지다 —
+        symbol이 종목 코드가 아니라 계좌를 뜻하는 의사 키이고, 신호 유형이 리밸런싱 필요
+        여부로 결정된다.
+        """
+        base = self.classify(result, signal_date)
+        signal_type = (
+            SignalType.REBALANCE
+            if plan.is_rebalance_day and plan.has_changes
+            else SignalType.HOLD
+        )
+        return dataclasses.replace(
+            base,
+            symbol=PORTFOLIO_SYMBOL,
+            signal_type=signal_type,
+            strategy_display_name=strategy_display_name or base.strategy_display_name,
+            position_recommendation=self._make_portfolio_recommendation(signal_type, plan),
+        )
+
+    @staticmethod
+    def _make_portfolio_recommendation(signal_type: SignalType, plan: RebalancePlan) -> str:
+        head = "리밸런싱 실행" if signal_type is SignalType.REBALANCE else "현 배분 유지"
+        return f"{head} | {plan.summary()}"
 
     def _make_recommendation(
         self, signal_type: SignalType, m: BacktestMetrics, risk_flags: list[str]

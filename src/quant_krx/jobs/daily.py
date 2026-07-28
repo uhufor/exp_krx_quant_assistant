@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -12,14 +13,23 @@ from quant_krx.data.fundamental_base import FundamentalProvider
 from quant_krx.data.pykrx_fundamental import PyKrxFundamentalAdapter
 from quant_krx.llm import create_provider
 from quant_krx.reports import ReportARenderer, ReportBRenderer, ReportInput
+from quant_krx.screening.service import ScreeningService
 from quant_krx.signals import SignalClassifier
+from quant_krx.signals.classifier import Signal
+from quant_krx.signals.rebalance import RebalancePlan, diff_weights
 from quant_krx.storage.db import Database
 from quant_krx.storage.validation import DataValidator
-from quant_krx.workspace.backtest import run_single_symbol_backtest
+from quant_krx.workspace.backtest import (
+    PORTFOLIO_KEY,
+    run_backtest,
+    run_single_symbol_backtest,
+)
 from quant_krx.workspace.data_loading import (
     build_factor_input_from_ohlcv,
     fetch_and_upsert_fundamentals,
+    prepare_dynamic_universe,
 )
+from quant_krx.workspace.dynamic_universe import DynamicUniversePlan
 from quant_krx.workspace.evaluation import strategy_required_data
 from quant_krx.workspace.service import WorkspaceService
 from quant_krx.workspace.templates import seed_builtin_strategies
@@ -79,12 +89,105 @@ class DailyJob:
             llm_kwargs["api_key"] = settings.llm.anthropic_api_key
         self._llm = create_provider(**llm_kwargs)
         self._report_b = ReportBRenderer(llm=self._llm)
+        # 포트폴리오 신호 id -> 리밸런싱 계획(R05). 신호 생성과 리포트 렌더링 사이를 잇는
+        # 실행 단위 임시 보관소이며 run() 시작 시 비운다.
+        self._rebalance_plans: dict[str, RebalancePlan] = {}
+
+    def _resolve_dynamic_universe(
+        self, sid: str, defn, *, start: date, end: date
+    ) -> DynamicUniversePlan | None:
+        """동적 유니버스 전략의 대상 종목 계획을 세운다(R05).
+
+        스크리닝 실행은 CLI/API와 동일한 `prepare_dynamic_universe`에 위임한다 — jobs/는
+        최상위 실행 계층이므로 screening을 직접 소비해도 되지만, 계획 수립 로직은 한 곳에
+        두어 drift를 막는다. 실패해도 다른 전략을 막지 않도록 None을 반환한다.
+        """
+        screening_svc = ScreeningService(self._db, self._provider)
+        try:
+            return prepare_dynamic_universe(
+                defn, start=start, end=end,
+                resolve=lambda condition_id, as_of: screening_svc.resolve_symbols(
+                    condition_id, as_of
+                ),
+            )
+        except Exception as e:  # noqa: BLE001 — 전략 단위 격리(FR-17)
+            logger.error("[%s] 동적 유니버스 해석 실패: %s", sid, e)
+            self._db.log_event(
+                "", "dynamic_universe_error", f"{sid}: {e}", level="ERROR"
+            )
+            return None
+
+    def _run_portfolio_strategy(
+        self,
+        sid: str,
+        defn,
+        ohlcv_map: dict[str, Any],
+        *,
+        plan: DynamicUniversePlan | None,
+        benchmark_df,
+        start: date,
+        end: date,
+        as_of: date,
+        run_id: str,
+        result: DailyJobResult,
+    ) -> Signal | None:
+        """포트폴리오 전략을 계좌 단위로 실행하고 리밸런싱 권고 신호 1건을 만든다(R05)."""
+        symbols = plan.symbols if plan is not None else list(defn.universe.symbols)
+        data: dict[str, Any] = {}
+        for sym in symbols:
+            if sym not in ohlcv_map:
+                continue  # 수집 실패 종목은 이미 기록됨
+            try:
+                data[sym] = build_factor_input_from_ohlcv(
+                    self._db, sym, ohlcv_map[sym], start=start, end=end
+                )
+            except Exception as e:  # noqa: BLE001 — 종목 단위 격리(FR-17)
+                logger.warning("[%s] %s 데이터 조립 실패: %s", sid, sym, e)
+
+        if not data:
+            msg = f"{sid}: 포트폴리오 대상 종목의 데이터가 없습니다"
+            logger.error(msg)
+            result.errors.append(msg)
+            return None
+
+        try:
+            report = run_backtest(
+                defn, data,
+                fees=0.003, slippage=0.001, benchmark=benchmark_df,
+                resolve_formula=self._workspace.get_formula,
+                resolve_rule=self._workspace.get_rule,
+                start=start, end=end,
+                resolve_universe=plan.eligible_at if plan is not None else None,
+            )
+        except Exception as e:  # noqa: BLE001 — 전략 단위 격리(FR-17)
+            msg = f"{sid}: 포트폴리오 백테스트 실패: {e}"
+            logger.error(msg)
+            result.errors.append(msg)
+            self._db.log_event(run_id, "portfolio_strategy_error", msg, level="ERROR")
+            return None
+
+        portfolio_result = report.results.get(PORTFOLIO_KEY)
+        if portfolio_result is None:
+            result.errors.append(f"{sid}: 포트폴리오 결과가 비어 있습니다")
+            return None
+
+        rebalance_plan = diff_weights(report.weights, as_of)
+        signal = self._classifier.classify_portfolio(
+            dataclasses.replace(portfolio_result, run_id=run_id),
+            rebalance_plan,
+            signal_date=as_of,
+            strategy_display_name=defn.name,
+        )
+        # 리포트 렌더링 단계에서 계획을 다시 찾을 수 있도록 신호 id로 보관한다.
+        self._rebalance_plans[signal.id] = rebalance_plan
+        return signal
 
     def run(
         self, dry_run: bool = False, as_of: date | None = None, now: datetime | None = None
     ) -> DailyJobResult:
         run_id = f"{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:8]}"
         result = DailyJobResult(run_id=run_id, started_at=datetime.utcnow())
+        self._rebalance_plans = {}  # 실행 간 누수 방지
         as_of = as_of or date.today()
         now = now or datetime.utcnow()  # 시각 주입(INV-3) — 미지정 시에만 벽시계 폴백
 
@@ -109,16 +212,29 @@ class DailyJob:
                 if (defn := self._workspace.get_strategy(sid)) is not None
             ]
 
-            # 2. universe 해석(D5, FR-15) — 수집 대상 = watchlist ∪ 활성 전략 universe 합집합
-            extra_symbols: set[str] = set()
-            for _, defn in active_defns:
-                extra_symbols |= set(defn.universe.symbols)
-            collect_symbols = sorted(set(watchlist) | extra_symbols)
-            result.symbol_count = len(collect_symbols)
-
             # 3. 데이터 수집 + 검증
             end = as_of
             start = end - timedelta(days=365 * 5)  # 5년 히스토리
+
+            # 2. universe 해석(D5, FR-15) — 수집 대상 = watchlist ∪ 활성 전략 universe 합집합
+            #
+            # 동적 유니버스(P2)는 종목이 시점마다 정해지므로 수집 **이전에** 계획을 세워야
+            # 한다(R05). 계획을 세우지 않으면 symbols가 비어 watchlist로 조용히 대체되고,
+            # 사용자가 지정한 스크리닝과 무관한 종목이 실행된다.
+            extra_symbols: set[str] = set()
+            universe_plans: dict[str, DynamicUniversePlan] = {}
+            for sid, defn in active_defns:
+                if defn.universe.is_dynamic:
+                    plan = self._resolve_dynamic_universe(sid, defn, start=start, end=end)
+                    if plan is not None:
+                        universe_plans[sid] = plan
+                        extra_symbols |= set(plan.symbols)
+                    else:
+                        result.errors.append(f"{sid}: 동적 유니버스 해석 실패")
+                else:
+                    extra_symbols |= set(defn.universe.symbols)
+            collect_symbols = sorted(set(watchlist) | extra_symbols)
+            result.symbol_count = len(collect_symbols)
 
             ohlcv_map: dict[str, Any] = {}
             benchmark_df = None
@@ -176,7 +292,19 @@ class DailyJob:
 
             # 5. 평가 + 백테스트(전략×종목 단위 실패 격리 — FR-17)
             backtest_results = []
+            portfolio_signals: list[Signal] = []
             for sid, defn in active_defns:
+                # 포트폴리오 전략(R05)은 계좌 단위로 실행하고 리밸런싱 권고 1건을 낸다.
+                if defn.portfolio is not None:
+                    signal = self._run_portfolio_strategy(
+                        sid, defn, ohlcv_map,
+                        plan=universe_plans.get(sid), benchmark_df=benchmark_df,
+                        start=start, end=end, as_of=as_of, run_id=run_id, result=result,
+                    )
+                    if signal is not None:
+                        portfolio_signals.append(signal)
+                    continue
+
                 run_symbols = list(defn.universe.symbols) or watchlist
                 for sym in run_symbols:
                     if sym not in ohlcv_map:
@@ -201,8 +329,9 @@ class DailyJob:
 
             self._db.log_event(run_id, "quant_done", f"{len(backtest_results)} 전략×종목 실행")
 
-            # 6. 신호 생성 + 저장
+            # 6. 신호 생성 + 저장 (포트폴리오 신호는 이미 생성돼 있어 뒤에 이어 붙인다)
             signals = self._classifier.classify_batch(backtest_results, signal_date=as_of)
+            signals.extend(portfolio_signals)
             result.signal_count = len(signals)
             for sig in signals:
                 self._db.insert_signal(sig.to_dict())
@@ -212,7 +341,12 @@ class DailyJob:
             telegram_messages: list[str] = []
             msg_seq = 1
             for sig in signals:
-                inp = ReportInput(signal=sig, ticker_metadata=ticker_metadata.get(sig.symbol, {}))
+                inp = ReportInput(
+                    signal=sig,
+                    ticker_metadata=ticker_metadata.get(sig.symbol, {}),
+                    rebalance_plan=self._rebalance_plans.get(sig.id),
+                    symbol_metadata=ticker_metadata,
+                )
                 ra = self._report_a.render(inp, seq=msg_seq)
                 msg_seq += 1
                 rb = self._report_b.render(inp, seq=msg_seq)

@@ -28,13 +28,6 @@ def _is_spac(name: str) -> bool:
     return _SPAC_NAME_MARKER in name
 
 
-def _krx_stock():
-    """Lazy import of pykrx.stock to avoid pkg_resources import at module load."""
-    from pykrx import stock as _stock  # noqa: PLC0415
-
-    return _stock
-
-
 def resolve_scan_universe(
     provider: DataProvider,
     exclusion_filters: frozenset[str],
@@ -47,8 +40,8 @@ def resolve_scan_universe(
     한 번 더 수행한다(이중 방어).
 
     as_of를 주면 그 시점 상장 종목을 기준으로 삼는다 — 과거 구간 백테스트에서 현재
-    상장 종목만 후보로 두면 생존 편향이 생기기 때문이다(P2). ETF/ETN 티커 목록은
-    pykrx가 시점별 조회를 제공하지 않아 현재 기준이며, 이는 알려진 한계다.
+    상장 종목만 후보로 두면 생존 편향이 생기기 때문이다(P2). ETF/ETN 제외 목록도
+    provider를 통해 같은 as_of로 조회한다.
     """
     rejected = frozenset(exclusion_filters) & _definition._UNSUPPORTED_FILTERS
     if rejected:
@@ -60,13 +53,13 @@ def resolve_scan_universe(
     symbols = set(provider.list_symbols(market="KRX", as_of=as_of))
     raw_symbol_count = len(symbols)
 
+    # ETF/ETN 목록도 provider를 통해 조회한다 — 예전에는 pykrx를 직접 호출해서, fixture
+    # 데이터소스로 오프라인 실행을 해도 이 필터가 켜져 있으면 KRX 로그인을 시도했다.
     if "etf" in exclusion_filters:
-        stock = _krx_stock()
-        symbols -= set(stock.get_etf_ticker_list())
+        symbols -= {s.zfill(6) for s in provider.list_etf_symbols(as_of=as_of)}
 
     if "etn" in exclusion_filters:
-        stock = _krx_stock()
-        symbols -= set(stock.get_etn_ticker_list())
+        symbols -= {s.zfill(6) for s in provider.list_etn_symbols(as_of=as_of)}
 
     if exclusion_filters & {"preferred", "spac"}:
         metadata = provider.fetch_metadata(sorted(symbols))
