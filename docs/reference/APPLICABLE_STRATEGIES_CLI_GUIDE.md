@@ -47,7 +47,7 @@ Rule/Formula/Strategy를 새로 작성·생성·검증·백테스트하는 전 �
 | 3 | RSI 과매도 반등 | ✅ | `rsi` | builtin Template `rsi_breakout`(window=14), 원본 JSON 예제 D-3 |
 | 4 | 볼린저 밴드 평균회귀 | ✅ | `price`, `bollinger` | builtin Template `bollinger_band`, 원본 JSON 예제 D-4 |
 | 5 | 절대 모멘텀(12-1) | ✅ | `momentum` | builtin Template `momentum`(lookback=252, skip=21), 원본 JSON 예제 D-5 |
-| 6 | 저PER+고ROE 퀄리티-밸류(Buffett 근사) | ✅(신규 조합) | `per`, `roe_approx`(+ `sma`) | [NO_CODE_STRATEGY_WORKSPACE.md §CLI 사용 예제](../NO_CODE_STRATEGY_WORKSPACE.md#cli-사용-예제-삼성전자-퀄리티-밸류-전략)에 완결 예제 있음(Formula 3개 사용) |
+| 6 | 저PER+고ROE 퀄리티-밸류(Buffett 근사) | ✅(신규 조합) | `per`, `roe_approx`(+ `sma`) | [STRATEGY.md §CLI 사용 예제](../STRATEGY.md#cli-사용-예제-삼성전자-퀄리티-밸류-전략)에 완결 예제 있음(Formula 3개 사용) |
 | 7 | 저PER+저PBR 딥밸류(Graham 근사) | ✅ | `per`, `pbr` | 예제 A — valuation만 필요, financials 불필요 |
 | 8 | 고배당 전략(Dogs-of-Dow류) | ✅ | `dividend_yield` | 예제 B |
 | 9 | 추세추종 + RSI 눌림목 하이브리드 | ✅(신규 조합) | `price`, `sma`, `rsi` | 예제 C — valuation도 financials도 불필요 |
