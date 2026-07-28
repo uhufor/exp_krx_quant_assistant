@@ -191,7 +191,7 @@ export function BacktestPage() {
   const [strategyIds, setStrategyIds] = useState<string[]>([])
   const [strategyId, setStrategyId] = useState<string | null>(null)
   const [symbols, setSymbols] = useState('')
-  const [dataSource, setDataSource] = useState<'fixture' | 'krx_dart'>('fixture')
+  const [dataSource, setDataSource] = useState<'fixture' | 'fixture_10y' | 'krx_dart'>('fixture')
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
   const [benchmark, setBenchmark] = useState('')
@@ -266,10 +266,10 @@ export function BacktestPage() {
           />
           <Select
             label="데이터소스"
-            data={['fixture', 'krx_dart']}
+            data={['fixture', 'fixture_10y', 'krx_dart']}
             value={dataSource}
             onChange={(v) => setDataSource((v as typeof dataSource) ?? 'fixture')}
-            w={110}
+            w={140}
           />
           <TextInput
             label="시작일"

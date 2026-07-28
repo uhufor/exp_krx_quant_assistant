@@ -34,7 +34,7 @@ class ValidationRequest(BaseModel):
     symbols: list[str] | None = None
     start: date | None = None
     end: date | None = None
-    data_source: Literal["fixture", "krx_dart"] = "fixture"
+    data_source: Literal["fixture", "fixture_10y", "krx_dart"] = "fixture"
     fees: float = 0.003
     slippage: float = 0.001
     benchmark: str | None = None

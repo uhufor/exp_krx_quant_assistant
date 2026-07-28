@@ -277,3 +277,56 @@ def test_composite_rule_threshold_fails_fast(monkeypatch, tmp_path):
     assert result.exit_code == 1
     assert "파라미터 그리드 오류" in result.stdout
     assert "상수 피연산자가 없습니다" in result.stdout
+
+
+def test_accepts_fixture_10y_data_source(monkeypatch, tmp_path):
+    """10년치 실데이터 픽스처로 워크포워드가 끝까지 도는지 — 롤링창은 긴 구간이라야 의미가 있다."""
+    _seed(tmp_path, monkeypatch)
+    result = runner.invoke(
+        app,
+        [
+            "validation-run", "val_test", "--data-source", "fixture_10y",
+            "--start", "2015-01-02", "--end", "2024-12-30",
+            "--folds", "3", "--rolling",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "3/3 성공" in result.stdout
+    assert "롤링창" in result.stdout
+
+
+def test_rolling_and_anchored_differ_on_long_history(monkeypatch, tmp_path):
+    """확장창은 학습 시작이 고정, 롤링창은 뒤로 밀린다 — 10년 구간에서 실제로 갈려야 한다."""
+    _seed(tmp_path, monkeypatch)
+    period = ["--start", "2015-01-02", "--end", "2024-12-30", "--folds", "3"]
+    base = ["validation-run", "val_test", "--data-source", "fixture_10y", *period]
+
+    anchored = runner.invoke(app, [*base, "--anchored"])
+    rolling = runner.invoke(app, [*base, "--rolling"])
+    assert anchored.exit_code == 0 and rolling.exit_code == 0
+
+    # 확장창은 모든 폴드의 학습 시작이 2015-01-02, 롤링창은 폴드마다 다르다.
+    assert anchored.stdout.count("2015-01-02~") == 3
+    assert rolling.stdout.count("2015-01-02~") == 1
+
+
+def test_list_distinguishes_anchored_from_rolling(monkeypatch, tmp_path):
+    """두 방식을 대조 실행하는 것이 표준 사용법이므로 목록에서 구분되어야 한다."""
+    _seed(tmp_path, monkeypatch)
+    _run("--folds", "2", "--test-ratio", "0.4", "--anchored")
+    _run("--folds", "2", "--test-ratio", "0.4", "--rolling")
+
+    listed = runner.invoke(app, ["validation-list"])
+    assert listed.exit_code == 0
+    assert "walkforward(확장)" in listed.stdout
+    assert "walkforward(롤링)" in listed.stdout
+
+
+def test_list_omits_window_label_for_holdout(monkeypatch, tmp_path):
+    """단일 분할은 폴드가 하나뿐이라 확장/롤링 구분이 의미가 없다."""
+    _seed(tmp_path, monkeypatch)
+    _run("--mode", "holdout")
+
+    listed = runner.invoke(app, ["validation-list"])
+    assert "holdout·" in listed.stdout
+    assert "확장" not in listed.stdout

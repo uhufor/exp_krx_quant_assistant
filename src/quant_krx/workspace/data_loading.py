@@ -14,6 +14,7 @@ from quant_krx.data.coverage import (
 from quant_krx.data.fundamental_base import FundamentalProvider
 from quant_krx.data.loader import load_factor_input
 from quant_krx.data.upsert import upsert_fundamental
+from quant_krx.data_sources import DATA_SOURCES, OFFLINE_DATA_SOURCES
 from quant_krx.factors import FactorInput
 from quant_krx.storage.db import Database
 from quant_krx.strategy.definition import StrategyDefinition
@@ -25,7 +26,9 @@ from quant_krx.workspace.dynamic_universe import (
 from quant_krx.workspace.errors import EmptyOhlcvError
 from quant_krx.workspace.evaluation import FormulaResolver, RuleResolver, strategy_required_data
 
-DATA_SOURCES = ("fixture", "krx_dart")
+# 화이트리스트 원천은 quant_krx.data_sources(의존성 없는 최상위 모듈) — 여기서는 기존 import
+# 경로(`from workspace.data_loading import DATA_SOURCES`)를 유지하기 위해 재export만 한다.
+__all__ = ["DATA_SOURCES", "OFFLINE_DATA_SOURCES"]
 
 
 def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
@@ -157,6 +160,10 @@ def _ohlcv_provider_for(data_source: str) -> DataProvider:
         from quant_krx.data.fixture_adapter import FixtureAdapter
 
         return FixtureAdapter()
+    if data_source == "fixture_10y":
+        from quant_krx.data.fixture_adapter import FIXTURE_10Y_PATH, FixtureAdapter
+
+        return FixtureAdapter(fixture_path=FIXTURE_10Y_PATH)
     if data_source == "krx_dart":
         from quant_krx.data.pykrx_adapter import PyKrxAdapter
 
@@ -210,13 +217,15 @@ def _fetch_fundamentals_for_backtest(
     않으므로(`PyKrxFundamentalAdapter.fetch_financials`/`DartFundamentalAdapter.fetch_valuation`
     모두 `NotImplementedError`) kind별로 분리 수집하며, 한쪽 실패가 다른 kind를 막지 않는다.
     """
-    if data_source == "fixture":
+    if data_source in OFFLINE_DATA_SOURCES:
+        # fixture_10y는 OHLCV만 10년치이고 펀더멘털 픽스처는 2024년 1년치뿐이다 —
+        # 밸류에이션·재무 팩터를 쓰는 전략은 그 바깥 구간에서 NaN으로 자연 탈락한다.
         from quant_krx.data.fixture_fundamental import FixtureFundamentalAdapter
 
         _fetch_or_warn(
             db, symbols, FixtureFundamentalAdapter,
             required_kinds & {"valuation", "financials"},
-            start=start, end=end, on_warning=on_warning, label="fixture",
+            start=start, end=end, on_warning=on_warning, label=data_source,
         )
         return
 

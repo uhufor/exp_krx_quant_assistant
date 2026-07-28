@@ -7,9 +7,14 @@ import pandas as pd
 
 from .base import OHLCVData, ProviderMeta
 
-FIXTURE_PATH = (
-    Path(__file__).parent.parent.parent.parent / "tests" / "fixtures" / "sample_ohlcv.csv"
-)
+_FIXTURE_DIR = Path(__file__).parent.parent.parent.parent / "tests" / "fixtures"
+
+FIXTURE_PATH = _FIXTURE_DIR / "sample_ohlcv.csv"
+
+# 실제 KRX 수정주가 10년치(5종목 × 2458거래일). 합성 1년치로는 드러나지 않는 것들 —
+# 워크포워드 롤링창의 효과, 국면 전환(2018·2020·2022·2024), 모멘텀(273일 워밍업) — 을
+# 오프라인으로 확인하기 위한 픽스처다.
+FIXTURE_10Y_PATH = _FIXTURE_DIR / "sample_ohlcv_10y.csv"
 
 
 class FixtureAdapter:

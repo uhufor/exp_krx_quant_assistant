@@ -27,7 +27,7 @@ uv run python -m quant_krx strategy-backtest STRATEGY_ID [옵션들]
 | `--end` | 백테스트 종료일(`YYYY-MM-DD`) | 오늘 |
 | `--fees` | 거래당 수수료율 | `0.003` |
 | `--slippage` | 거래당 슬리피지율 | `0.001` |
-| `--data-source` | 데이터 소스: `fixture`(OHLCV+펀더멘털 전부 오프라인 합성) \| `krx_dart`(OHLCV·밸류에이션=PyKrx, 재무제표=DART 조합 실데이터) | `fixture` |
+| `--data-source` | `fixture`(합성 1년치) \| `fixture_10y`(실제 KRX 수정주가 10년치, 오프라인) \| `krx_dart`(PyKrx+DART 실데이터 수집) — 아래 [데이터 소스](#데이터-소스) 참고 | `fixture` |
 | `--benchmark` | 벤치마크 심볼/시장(예: `KOSPI`) — 지정 시 벤치마크 수익률·초과수익률을 함께 산출. 수집 실패는 경고만 남기고 백테스트는 계속 진행 | 없음 |
 
 전략이 밸류에이션/재무제표 팩터를 참조하면 펀더멘털이 자동 선행 수집된다 —
@@ -90,8 +90,12 @@ uv run python -m quant_krx strategy-backtest my_strategy --no-cache
 
 | 값 | 설명 |
 |---|---|
-| `fixture` | 합성 데이터(5종목 × 252거래일). 네트워크·자격증명 없이 오프라인 검증용 |
-| `krx_dart` | 실데이터. OHLCV·밸류에이션은 PyKrx, 재무제표는 DART |
+| `fixture` | 합성 데이터(5종목 × 252거래일, 2024년). 네트워크·자격증명 없이 오프라인 검증용 |
+| `fixture_10y` | **실제 KRX 수정주가**(5종목 × 2,458거래일, 2015~2024). 저장소에 커밋되어 있어 오프라인이지만 실제 가격 움직임·국면 전환을 포함 |
+| `krx_dart` | 실데이터 수집. OHLCV·밸류에이션은 PyKrx, 재무제표는 DART |
+
+`fixture_10y`는 **OHLCV만** 10년치입니다. 밸류에이션·재무제표 픽스처는 2024년 1년치뿐이라,
+펀더멘털 팩터를 쓰는 전략은 그 바깥 구간에서 NaN으로 자연 탈락합니다(가격 기반 전략은 무관).
 
 `krx_dart`는 `.env`에 `KRX_ID`/`KRX_PW`(밸류에이션), `DART_API_KEY`(재무제표)가 필요합니다.
 자세한 설정은 [시작하기](GETTING_STARTED.md)를 참고하세요.

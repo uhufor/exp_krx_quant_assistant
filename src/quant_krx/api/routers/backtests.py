@@ -30,7 +30,7 @@ class BacktestRequest(BaseModel):
     symbols: list[str] | None = None  # 생략 시 전략 universe.symbols 사용(CLI와 동일 규약)
     start: date | None = None  # 생략 시 종료일 5년 전(CLI와 동일 규약)
     end: date | None = None  # 생략 시 오늘
-    data_source: Literal["fixture", "krx_dart"] = "fixture"
+    data_source: Literal["fixture", "fixture_10y", "krx_dart"] = "fixture"
     fees: float = 0.003
     slippage: float = 0.001
     benchmark: str | None = None

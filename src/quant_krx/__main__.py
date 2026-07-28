@@ -16,6 +16,7 @@ from rich.table import Table
 
 from quant_krx import __version__
 from quant_krx.config.settings import get_settings
+from quant_krx.data_sources import DATA_SOURCE_HELP, DATA_SOURCES, OFFLINE_DATA_SOURCES
 
 # pydantic-settings의 env_file 로딩은 os.environ에 반영되지 않는다. pykrx 등 일부
 # 서드파티 라이브러리가 os.getenv()로 자격증명(KRX_ID/KRX_PW)을 직접 읽으므로,
@@ -28,6 +29,8 @@ logging.basicConfig(level=get_settings().log_level)
 
 app = typer.Typer(name="quant-krx", help="KRX Korean Stock Quant Trading Assistant")
 console = Console()
+
+
 
 
 def _read_json_input(source: str) -> dict:
@@ -101,7 +104,7 @@ def run_daily(
     # fixture 모드에서는 펀더멘털도 오프라인 어댑터를 써야 한다 — 기본값(PyKrx)을 그대로
     # 두면 밸류에이션·재무 팩터를 쓰는 전략이 네트워크를 타서 오프라인 검증이 깨진다.
     fundamental_provider = None
-    if data_source == "fixture":
+    if data_source in OFFLINE_DATA_SOURCES:
         from quant_krx.data.fixture_fundamental import FixtureFundamentalAdapter
 
         fundamental_provider = FixtureFundamentalAdapter()
@@ -618,7 +621,7 @@ def strategy_backtest_cmd(
     fees: float = typer.Option(0.003, "--fees"),
     slippage: float = typer.Option(0.001, "--slippage"),
     data_source: str = typer.Option(
-        "fixture", "--data-source", help="데이터 소스: fixture | krx_dart(KRX+DART 실데이터)"
+        "fixture", "--data-source", help=DATA_SOURCE_HELP
     ),
     benchmark: str = typer.Option(
         None, "--benchmark", help="벤치마크 심볼/시장(예: KOSPI) — 상대 성과 함께 산출"
@@ -638,8 +641,10 @@ def strategy_backtest_cmd(
     from quant_krx.workspace.errors import WorkspaceError
     from quant_krx.workspace.service import WorkspaceService
 
-    if data_source not in ("fixture", "krx_dart"):
-        console.print(f"[red]알 수 없는 --data-source '{data_source}'[/red]")
+    if data_source not in DATA_SOURCES:
+        console.print(
+            f"[red]알 수 없는 --data-source '{data_source}'(허용: {', '.join(DATA_SOURCES)})[/red]"
+        )
         raise typer.Exit(1)
 
     settings = get_settings()
@@ -946,7 +951,7 @@ def validation_run_cmd(
     fees: float = typer.Option(0.003, "--fees"),
     slippage: float = typer.Option(0.001, "--slippage"),
     data_source: str = typer.Option(
-        "fixture", "--data-source", help="데이터 소스: fixture | krx_dart"
+        "fixture", "--data-source", help=DATA_SOURCE_HELP
     ),
     benchmark: str = typer.Option(None, "--benchmark", help="벤치마크 심볼/시장(예: KOSPI)"),
 ):
@@ -964,8 +969,10 @@ def validation_run_cmd(
     from quant_krx.workspace.validation import ValidationSpec
     from quant_krx.workspace.walkforward import FoldSpecError
 
-    if data_source not in ("fixture", "krx_dart"):
-        console.print(f"[red]알 수 없는 --data-source '{data_source}'[/red]")
+    if data_source not in DATA_SOURCES:
+        console.print(
+            f"[red]알 수 없는 --data-source '{data_source}'(허용: {', '.join(DATA_SOURCES)})[/red]"
+        )
         raise typer.Exit(1)
 
     spec_raw: dict = {}
@@ -1138,10 +1145,16 @@ def validation_list_cmd(
         table.add_column(column)
     for record in records:
         spec, summary = record["spec"], record["summary"]
+        # 확장창/롤링창을 표시하지 않으면 두 방식을 대조 실행했을 때 목록에서 구분할 수 없다.
+        window = "확장" if spec.get("anchored", True) else "롤링"
+        mode = spec.get("mode")
+        label = f"{mode}·{spec.get('objective')}"
+        if mode != "holdout":
+            label = f"{mode}({window})·{spec.get('objective')}"
         table.add_row(
             record["validation_id"],
             record["strategy_id"],
-            f"{spec.get('mode')}·{spec.get('objective')}",
+            label,
             f"{summary.get('folds_ok')}/{summary.get('folds_total')}",
             _fmt_pct(summary.get("degradation")),
             _fmt_pct(summary.get("param_stability")),
@@ -1683,7 +1696,7 @@ def screen_run_cmd(
     condition_id: str = typer.Argument(..., help="실행할 스크리닝 조건 id"),
     as_of: str = typer.Option(None, "--as-of", help="기준일(YYYY-MM-DD, 생략 시 오늘)"),
     data_source: str = typer.Option(
-        "fixture", "--data-source", help="데이터 소스: fixture | krx_dart(KRX+DART 실데이터)"
+        "fixture", "--data-source", help=DATA_SOURCE_HELP
     ),
 ):
     """스크리닝 조건을 실행해 통과 종목(코드+이름)을 rich 표로 출력한다(저장 없음)."""
@@ -1693,8 +1706,10 @@ def screen_run_cmd(
 
     from quant_krx.screening.errors import ScreeningError
 
-    if data_source not in ("fixture", "krx_dart"):
-        console.print(f"[red]알 수 없는 --data-source '{data_source}'[/red]")
+    if data_source not in DATA_SOURCES:
+        console.print(
+            f"[red]알 수 없는 --data-source '{data_source}'(허용: {', '.join(DATA_SOURCES)})[/red]"
+        )
         raise typer.Exit(1)
 
     as_of_date = datetime.strptime(as_of, "%Y-%m-%d").date() if as_of else date.today()
