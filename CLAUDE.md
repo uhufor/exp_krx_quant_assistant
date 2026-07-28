@@ -43,6 +43,7 @@ uv run python -m quant_krx run-daily --no-dry-run    # Telegram 실제 발송
 uv run python -m quant_krx run-daily --dry-run --data-source fixture --as-of 2024-12-02
                                                      # 오프라인·과거 시점 재현(검증용)
 uv run python -m quant_krx show-reports --type all
+uv run python -m quant_krx data-health          # 데이터 신선도 점검(조회 전용)
 
 # CLI — 플랫폼(활성 개발)
 uv run python -m quant_krx list-factors              # 팩터 35종 목록
@@ -207,6 +208,16 @@ EPIC-03 D5(결과 미저장)를 반복 백테스트 비용 때문에 완화한 �
 결함). ② **매매 지시는 리밸런싱 당일에만 렌더한다** — 지나간 지시를 매일 반복하면 이미 실행한
 매매를 다시 하라는 뜻이 되므로, 그 외 날에는 `RebalancePlan.targets`(현재 목표 배분)만 보여준다.
 "현재 보유"는 실제 계좌가 아니라 **직전 리밸런싱 목표 비중**이며 리포트가 이 가정을 명시한다.
+
+**데이터 신선도(D3)**: `data/freshness.py::check_freshness`가 시세·밸류에이션·재무제표·자격증명을
+점검해 **이상이 있을 때만** 리포트 상단 한 줄로 알린다(`ReportInput.freshness_warning`).
+세 가지가 원칙이다. ① **전략이 실제로 쓰는 데이터만 점검**한다(`required_data` 기준) — 안 쓰는
+데이터의 지연을 알리면 잡음이다. ② **실행을 막지 않는다** — 펀더멘털 수집 실패도 흡수하고
+계속 진행한다(세션 만료 하나로 매일 잡이 멈추면 안 된다). ③ **신호가 0건이면 경고를 실을
+리포트가 없으므로** 경고만 담은 알림 1건을 폴백으로 낸다(데이터가 없어 전 전략이 실패했을 때
+아무 연락도 못 받는 침묵 방지). 판정 기준(`is_financials_stale`)은 `data/coverage.py`에 두어
+증분 수집(`screening/fundamental_sync.py`)과 공유한다 — 기준이 갈리면 "수집은 건너뛰는데
+점검은 경고하는" 모순이 생긴다.
 
 **스크리닝 제약(EPIC-03)**: `screening/`은 `rule/`·`formula/`·`strategy/`·`workspace/evaluation.py`·
 `workspace/service.py`를 import하지 않는다(`workspace/numeric.py` leaf만 예외). 제외 필터 10종 중

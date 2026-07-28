@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 from quant_krx.data.coverage import (
     date_range_gaps,
@@ -8,27 +8,11 @@ from quant_krx.data.coverage import (
     existing_valuation_coverage,
     latest_financials_period,
 )
-from quant_krx.data.dart_fundamental import DISCLOSURE_GRACE_DAYS
+from quant_krx.data.coverage import (
+    is_financials_stale as _is_stale,
+)
 from quant_krx.data.upsert import upsert_fundamental
 from quant_krx.storage.db import Database
-
-_QUARTER_END_MONTH_DAY = {1: "-03-31", 2: "-06-30", 3: "-09-30", 4: "-12-31"}
-
-
-def _period_end(year: int, quarter: int) -> date:
-    return date.fromisoformat(f"{year}{_QUARTER_END_MONTH_DAY[quarter]}")
-
-
-def _next_quarter(year: int, quarter: int) -> tuple[int, int]:
-    return (year + 1, 1) if quarter == 4 else (year, quarter + 1)
-
-
-def _is_stale(latest: tuple[int, int] | None, as_of: date) -> bool:
-    """`latest` 다음 분기가 이미 공시됐어야 하는데 없으면(또는 데이터 자체가 없으면) 갱신 대상."""
-    if latest is None:
-        return True
-    next_year, next_quarter = _next_quarter(*latest)
-    return _period_end(next_year, next_quarter) + timedelta(days=DISCLOSURE_GRACE_DAYS) <= as_of
 
 
 def sync_universe_fundamentals(

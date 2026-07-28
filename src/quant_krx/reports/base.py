@@ -25,6 +25,9 @@ class ReportInput:
     regime_summary: str = ""  # 시스템이 생성한 레짐 요약
     # 포트폴리오 전략(R05)일 때만 채워진다. 있으면 렌더러가 계좌 단위 포맷으로 분기한다.
     rebalance_plan: RebalancePlan | None = None
+    # 데이터 신선도 경고 한 줄(D3). 이상이 있을 때만 채워지며 정상이면 빈 문자열이라
+    # 평소 리포트가 길어지지 않는다.
+    freshness_warning: str = ""
     # 포트폴리오 구성 종목의 이름 표시용 {symbol: {"name": ...}}.
     symbol_metadata: dict[str, dict[str, Any]] = field(default_factory=dict)
 

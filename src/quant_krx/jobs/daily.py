@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from quant_krx.config.settings import Settings
 from quant_krx.data.base import DataProvider
+from quant_krx.data.freshness import check_freshness
 from quant_krx.data.fundamental_base import FundamentalProvider
 from quant_krx.data.pykrx_fundamental import PyKrxFundamentalAdapter
 from quant_krx.llm import create_provider
@@ -285,10 +286,19 @@ class DailyJob:
                     defn, self._workspace.get_rule, self._workspace.get_formula
                 )
             if required_union & {"valuation", "financials"}:
-                fetch_and_upsert_fundamentals(
-                    self._db, list(ohlcv_map.keys()), self._fundamental_provider,
-                    start=start, end=end, as_of=as_of, kinds=frozenset(required_union),
-                )
+                # 펀더멘털 수집 실패가 잡 전체를 죽이면 안 된다 — KRX 세션 만료나 DART 장애
+                # 하나로 매일 잡이 멈춘다. 백테스트 경로(`_fetch_or_warn`)와 같은 원칙으로
+                # 흡수하고, 그 결과 생긴 결측은 아래 신선도 점검(D3)이 경고로 드러낸다.
+                try:
+                    fetch_and_upsert_fundamentals(
+                        self._db, list(ohlcv_map.keys()), self._fundamental_provider,
+                        start=start, end=end, as_of=as_of, kinds=frozenset(required_union),
+                    )
+                except Exception as e:  # noqa: BLE001 — 위 주석 참고
+                    msg = f"펀더멘털 수집 실패(계속 진행): {e}"
+                    logger.warning(msg)
+                    result.errors.append(msg)
+                    self._db.log_event(run_id, "fundamental_fetch_error", msg, level="WARNING")
 
             # 5. 평가 + 백테스트(전략×종목 단위 실패 격리 — FR-17)
             backtest_results = []
@@ -329,6 +339,18 @@ class DailyJob:
 
             self._db.log_event(run_id, "quant_done", f"{len(backtest_results)} 전략×종목 실행")
 
+            # 5-1. 데이터 신선도 점검(D3) — 결측은 NaN으로 조용히 degrade되므로, 낡은 값으로
+            # 결론이 나는 것을 막으려면 별도로 짚어줘야 한다. 실행을 막지는 않는다.
+            freshness = check_freshness(
+                self._db, collect_symbols, as_of=as_of,
+                check_valuation="valuation" in required_union,
+                check_financials="financials" in required_union,
+                missing_ohlcv=len(collect_symbols) - len(ohlcv_map),
+            )
+            if not freshness.ok:
+                logger.warning("데이터 신선도 경고: %s", freshness.summary())
+                self._db.log_event(run_id, "freshness_warn", freshness.summary(), level="WARNING")
+
             # 6. 신호 생성 + 저장 (포트폴리오 신호는 이미 생성돼 있어 뒤에 이어 붙인다)
             signals = self._classifier.classify_batch(backtest_results, signal_date=as_of)
             signals.extend(portfolio_signals)
@@ -346,6 +368,7 @@ class DailyJob:
                     ticker_metadata=ticker_metadata.get(sig.symbol, {}),
                     rebalance_plan=self._rebalance_plans.get(sig.id),
                     symbol_metadata=ticker_metadata,
+                    freshness_warning=freshness.summary(),
                 )
                 ra = self._report_a.render(inp, seq=msg_seq)
                 msg_seq += 1
@@ -357,6 +380,17 @@ class DailyJob:
                 result.report_b_count += 1
                 telegram_messages.append(ra.telegram_content)
                 telegram_messages.append(rb.telegram_content)
+
+            # 신호가 하나도 없으면 신선도 경고를 실을 리포트 자체가 없다 — 데이터가 없어
+            # 전 전략이 실패한 경우가 정확히 그렇다. 그대로 두면 "아무 알림도 안 왔는데
+            # 이유를 모르는" 가장 나쁜 침묵이 되므로 경고만 담은 메시지 1건을 폴백으로 낸다.
+            if not signals and not freshness.ok:
+                telegram_messages.append(
+                    f"<b>⚠️ 데이터 상태 경고</b>\n"
+                    f"<i>{as_of}</i>\n\n"
+                    f"<blockquote>{freshness.summary()}</blockquote>\n\n"
+                    f"신호가 생성되지 않았습니다. 데이터 수집 상태를 확인하세요."
+                )
 
             self._db.log_event(
                 run_id, "report_done",
