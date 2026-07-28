@@ -1,22 +1,23 @@
-# No-Code Strategy Workspace
+# 전략 정의 (Factor · Formula · Rule · Strategy)
 
-코드 없이 팩터(Factor)·산술 조합(Formula)·조건(Rule)을 선언적으로 조합해 전략을
-설계 → 검증 → 백테스트 → Daily 운영 → 재사용(Template/Import·Export)까지 완결하는
-서브시스템. **CLI**(`uv run python -m quant_krx ...`)와 **GUI**(로컬 1인용 웹 화면,
-`serve-gui`) 두 가지 인터페이스로 사용할 수 있으며 내부적으로 같은 계층
-(`WorkspaceService` 등)을 공유해 동일한 결과를 낸다. 이 문서는 CLI 명령어 레퍼런스와
-End-to-End 예제 두 벌(GUI/CLI)을 함께 제공한다.
+코드 없이 **팩터(Factor)** → **산술 조합(Formula)** → **조건(Rule)** → **전략(Strategy)** 을
+선언적으로 쌓아 올려 나만의 매매 전략을 만드는 방법을 다룹니다.
 
-설계 원천: [refined_epics/](../refined_epics/README.md) (PRD-R01 Factor Platform,
-PRD-R02 Declarative Definition Core, PRD-R03 Workspace & Execution), GUI는
-[roadmap/EPIC_R02/](../roadmap/EPIC_R02/)(PRD/TRD/DESIGN R01). 정의는 순수
-JSON이며 코드·람다·수식 문자열을 저장·평가하지 않는다.
+정의는 순수 JSON이며 코드·람다·수식 문자열을 저장하거나 평가하지 않습니다. **CLI**와
+**GUI** 두 인터페이스가 내부적으로 같은 서비스 계층(`WorkspaceService`)을 공유하므로
+어느 쪽으로 만들어도 결과가 동일합니다.
 
-모든 정의 입력(`*-create`/`strategy-edit`/`strategy-import`)은 **JSON 파일 경로** 또는
-**stdin**(`-`)을 받으며, `strategy-edit`은 항상 **전체 정의 교체**다(부분 필드 패치 없음).
-미존재 id를 지정하면 오류 메시지에 현재 등록된 id 목록이 힌트로 함께 표시된다. GUI는
-공식/규칙의 중첩 표현식을 트리 편집기로 구성하므로 이 JSON 규약을 직접 다룰 필요가
-없다(내부적으로는 동일한 JSON을 생성해 저장한다).
+| 관련 문서 | 내용 |
+|---|---|
+| [백테스트](BACKTEST.md) | 만든 전략을 검증하고 실행 이력을 비교 |
+| [포트폴리오](PORTFOLIO.md) | 여러 종목을 자본 공유로 운용·리밸런싱 |
+| [스크리닝](SCREENING.md) | 전 종목에서 조건에 맞는 종목 찾기 |
+| [GUI](GUI.md) | 트리 편집기로 정의를 시각적으로 구성 |
+
+**입력 규약**: 모든 정의 입력(`*-create` / `strategy-edit` / `strategy-import`)은 **JSON 파일
+경로** 또는 **stdin**(`-`)을 받습니다. `strategy-edit`은 항상 **전체 정의 교체**이며 부분 필드
+패치는 없습니다. 미존재 id를 지정하면 오류 메시지에 등록된 id 목록이 힌트로 표시됩니다.
+GUI를 쓰면 이 JSON 규약을 직접 다룰 필요가 없습니다(내부적으로 동일한 JSON을 생성).
 
 ## 팩터 플랫폼 (Factor Platform)
 
@@ -462,43 +463,6 @@ uv run python -m quant_krx strategy-import my_strategy_bundle.json --overwrite
 
 ---
 
-### `strategy-backtest` — 백테스트 실행
-
-```bash
-uv run python -m quant_krx strategy-backtest STRATEGY_ID [옵션들]
-```
-
-| 인자/옵션 | 의미 | 기본값 |
-|---|---|---|
-| `strategy_id` (필수) | 백테스트할 전략 id(runnable + 검증 통과 상태여야 함) | — |
-| `--symbols` | 콤마 구분 종목 목록 | 생략 시 전략 `universe.symbols`. 그마저 비어있으면 에러(watchlist는 `daily` 자동 파이프라인 전용이며 여기선 사용하지 않음) |
-| `--start` | 백테스트 시작일(`YYYY-MM-DD`) | 종료일 5년 전 |
-| `--end` | 백테스트 종료일(`YYYY-MM-DD`) | 오늘 |
-| `--fees` | 거래당 수수료율 | `0.003` |
-| `--slippage` | 거래당 슬리피지율 | `0.001` |
-| `--data-source` | 데이터 소스: `fixture`(OHLCV+펀더멘털 전부 오프라인 합성) \| `krx_dart`(OHLCV·밸류에이션=PyKrx, 재무제표=DART 조합 실데이터) | `fixture` |
-| `--benchmark` | 벤치마크 심볼/시장(예: `KOSPI`) — 지정 시 벤치마크 수익률·초과수익률을 함께 산출. 수집 실패는 경고만 남기고 백테스트는 계속 진행 | 없음 |
-
-전략이 밸류에이션/재무제표 팩터를 참조하면 펀더멘털이 자동 선행 수집된다 —
-`fixture`는 `FixtureFundamentalAdapter` 하나가 양쪽 다 처리하고, `krx_dart`는
-밸류에이션=`PyKrxFundamentalAdapter`/재무제표=`DartFundamentalAdapter`로 kind별로
-분리 수집한다(단일 provider가 둘 다 지원하지 않으므로). 한쪽 수집이 실패해도(예:
-`DART_API_KEY` 미설정) 다른 kind나 OHLCV 기반 팩터 계산은 막지 않고 경고만 남긴다.
-이때 `fundamental_daily`에 symbol별로 이미 저장된 날짜 범위(min~max)를 조회해,
-요청 구간 중 **이미 커버된 부분은 재수집하지 않고 경계 바깥(이전/이후)의 부족분만
-증분 수집**한다 — 예를 들어 1~6월을 이미 받아둔 뒤 1~12월로 백테스트하면 7~12월만
-추가로 fetch된다. `--data-source krx_dart`처럼 개인 자격증명(KRX 로그인)이 필요한
-provider에서 불필요한 재호출을 피하기 위한 설계다(경계 내부의 결측은 거래 캘린더상
-자연 휴장일로 간주해 채우지 않는다). 종목이 2개 이상이면 표 제목에 대표 종목(첫
-번째 심볼)이 표기되고, 종목별 상세 지표는 `report.per_symbol`을 통해 별도 확인한다.
-
-```bash
-uv run python -m quant_krx strategy-backtest my_strategy --data-source fixture
-uv run python -m quant_krx strategy-backtest my_strategy --data-source fixture --benchmark KOSPI
-```
-
----
-
 ## Built-in Template
 
 최초 `run-daily` 실행 시 아래 5종이 자동으로 생성·활성화되어 끊김 없이 운영됩니다
@@ -517,93 +481,6 @@ uv run python -m quant_krx strategy-backtest my_strategy --data-source fixture -
 
 ---
 
-## GUI 사용 예제
-
-아래 CLI 예제(삼성전자 퀄리티-밸류 전략)를 **JSON 파일을 직접 다루지 않고** GUI만으로
-그대로 재현하는 절차다. 화면에서 만드는 정의는 내부적으로 CLI 예제와 완전히 동일한
-JSON을 생성해 저장하므로, 백테스트 결과 지표도 CLI 예제와 **소수점까지 동일**하다(실제
-검증 완료 — 거래 8회, 승률 25%, 초과수익률 -11.32%, 아래 표 참고).
-
-### 0. GUI 실행
-
-```bash
-cd web && npm install && npm run build && cd ..
-uv run python -m quant_krx serve-gui
-```
-
-브라우저로 `http://127.0.0.1:8765/`를 연다. 상단 탭: **팩터 · 공식 · 규칙 · 전략 · 백테스트**.
-
-### 1. 팩터 탭 — 사용할 팩터 확인
-
-`per`(밸류에이션, `value` 카테고리)와 `roe_approx`(밸류에이션, `quality` 카테고리) 행을
-찾아 파라미터·출력 컬럼을 확인한다(`show-factor` CLI와 동일 정보, 조회만 가능).
-
-### 2. 공식 탭 — Formula 3종을 트리 편집기로 생성
-
-좌측 "신규 id" 입력 → "새 공식" 클릭 → 이름/버전/출력 컬럼 입력 → **표현식** 트리에서
-편집. 세 개 모두 아래처럼 구성한다(각각 저장 전 "저장 전 검증" 클릭 → 통과 확인 →
-"저장").
-
-| id | 표현식 트리 구성 |
-|---|---|
-| `value_quality_score` | 이항 연산 `/` → 좌항: 팩터 `roe_approx`(컬럼 `roe_approx`) / 우항: 팩터 `per`(컬럼 `per`) |
-| `per_premium_gap` | 이항 연산 `-` → 좌항: 팩터 `per`(컬럼 `per`) / 우항: 상수 `10` |
-| `quality_price_composite` | 이항 연산 `-` → 좌항: **다시 이항 연산** `*`(팩터 `roe_approx` × 상수 `100`) / 우항: 팩터 `per`(컬럼 `per`) |
-
-세 번째(`quality_price_composite`)는 좌항 자리에서 드롭다운을 "이항 연산"으로 바꿔
-한 단계 더 들어가는 **중첩 트리 편집**을 보여준다(팩터/공식트리에서 필요한 만큼
-재귀적으로 반복 가능).
-
-### 3. 규칙 탭 — Rule 2종을 트리 편집기로 생성
-
-| id | 조건 트리 구성 |
-|---|---|
-| `qv_entry` | 최상위를 `AND`로 변경 → "+ 조건 추가"로 3개까지 늘려 각각: ① 좌항 "공식 참조" `value_quality_score` `>` 상수 `0.005`, ② 좌항 "공식 참조" `quality_price_composite` `>` 상수 `-1`, ③ 좌항 팩터 `sma`(window 5) `crosses_above` 우항 팩터 `sma`(window 20) |
-| `qv_exit` | 최상위를 `OR`로 변경 → 2개 조건: ① 좌항 "공식 참조" `per_premium_gap` `>` 상수 `5`, ② 좌항 팩터 `sma`(window 5) `crosses_below` 우항 팩터 `sma`(window 20) |
-
-각각 "저장 전 검증"으로 오류 없음을 확인한 뒤 저장한다.
-
-### 4. 전략 탭 — Strategy 생성
-
-Strategy는 중첩 표현식이 아니라 참조형 정의(팩터/규칙 id 목록)라 트리 편집기 대신
-반복 위젯 폼을 사용한다(JSON 직접 입력 없음). "신규 id"에 `qv_samsung_strategy` 입력
-→ "새 전략" 클릭 후:
-
-- **이름/버전**: "삼성전자 퀄리티-밸류 전략" / `1`
-- **팩터 참조**: "+ 팩터 추가"로 3행을 만들어 각각 드롭다운에서 `per`, `roe_approx`,
-  `sma` 선택(파라미터는 기본값 유지)
-- **대상 종목**: 입력란에 `005930` 입력 후 "추가"
-- **규칙 바인딩**: "초안(규칙 미지정)" 체크 해제 → 진입(entry) 드롭다운에서
-  `qv_entry` 선택 → 청산(exit) 드롭다운에서 `qv_exit` 선택
-
-"저장 전 검증" 클릭 → 통과 확인 → "저장".
-
-### 5. 백테스트 탭 — 실행
-
-- **전략**: `qv_samsung_strategy` 선택
-- **종목**: `005930`
-- **데이터소스**: `fixture`
-- **벤치마크**: `KOSPI`(선택 입력)
-- "백테스트 실행" 클릭
-
-> `fetch-fundamental`을 CLI로 미리 실행할 필요가 없다 — 백테스트 실행 시 필요한
-> 펀더멘털(밸류에이션) 데이터를 자동으로 수집한다(CLI의 `strategy-backtest`와 동일
-> 내부 로직 공유, `prepare_backtest_data()`).
-
-결과 화면에 아래 지표 요약, 자산곡선(equity curve) 차트, 거래 내역(8건) 표가 즉시
-표시된다. CLI 예제와 완전히 동일한 값이다.
-
-| 지표 | 값 |
-|---|---|
-| 총수익률 | -5.64% |
-| MDD | 22.39% |
-| Sharpe | -0.249 |
-| 승률 | 25.00% |
-| 거래 횟수 | 8 |
-| 벤치마크 수익률(KOSPI) | 5.69% |
-| 초과수익률 | -11.32% |
-
----
 
 ## CLI 사용 예제: 삼성전자 퀄리티-밸류 전략
 

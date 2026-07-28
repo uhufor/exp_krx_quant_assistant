@@ -1,0 +1,157 @@
+# GUI (웹 인터페이스)
+
+CLI로 하는 대부분의 작업을 로컬 웹 화면에서 할 수 있습니다. CLI와 **같은 서비스 계층을
+공유**하므로 어느 쪽으로 만들어도 결과가 동일합니다.
+
+| 관련 문서 | 내용 |
+|---|---|
+| [전략 정의](STRATEGY.md) | 화면에서 만드는 정의의 JSON 구조 |
+| [백테스트](BACKTEST.md) | 실행 옵션과 이력 비교 |
+| [스크리닝](SCREENING.md) | 조건 종류와 제외 필터 |
+
+---
+
+## 실행 방법
+
+CLI의 팩터 조회·공식/규칙/전략 CRUD·백테스트 실행을 로컬 1인용 웹 GUI로도 사용할 수 있습니다
+(localhost 전용, 인증 없음). 상세 설계는
+[roadmap/EPIC_R02/PRD-R01-QUANT_ASSISTANT_GUI.md](../roadmap/EPIC_R02/PRD-R01-QUANT_ASSISTANT_GUI.md),
+전체 사용 흐름 예제는
+아래 "GUI 사용 예제" 참고.
+
+화면은 상단 탭으로 구성됩니다: **팩터**(32종 카탈로그 읽기 전용 조회) · **공식**(Formula, 트리
+편집기로 팩터를 조합한 파생 지표 생성) · **규칙**(Rule, 비교/AND·OR·NOT 조건 트리 편집기) ·
+**전략**(Strategy, 공식/규칙 참조 + 활성화·템플릿·Export/Import) · **백테스트**(전략 실행 + 지표
+요약·equity curve 차트·거래내역 + 실행 이력 목록과 2건 이상 선택 비교).
+
+**최초 설정(1회, 이후 프론트엔드 코드를 바꿨을 때만 다시)**
+
+```bash
+cd web
+npm install   # package.json이 바뀌지 않는 한 보통 1회만 필요
+npm run build # web/dist/ 생성 — 프론트엔드 코드를 수정했다면 매번 다시 실행
+cd ..
+```
+
+> macOS에서 `npm install`이 `EACCES`(캐시 폴더 권한 오류)로 실패하면
+> `sudo chown -R $(id -u):$(id -g) ~/.npm`으로 npm 전역 캐시 소유권을 고친 뒤 다시 시도하세요.
+
+**평소 사용(서버 하나만 실행)**
+
+```bash
+# GUI 전체(API+화면)가 http://127.0.0.1:8765/ 에서 동작
+uv run python -m quant_krx serve-gui
+
+# 포트 지정(개발 모드 프록시 없이 이 방식으로 쓸 때만 유효 — 아래 참고)
+uv run python -m quant_krx serve-gui --port 9000
+```
+
+**프론트엔드 코드를 직접 수정하며 개발할 때**(저장 즉시 반영되는 HMR)
+
+```bash
+# 터미널 1: 백엔드는 반드시 기본 포트(8765)로 실행
+uv run python -m quant_krx serve-gui
+# 터미널 2: vite dev server(5173) — /api를 127.0.0.1:8765로 자동 프록시(web/vite.config.ts)
+cd web && npm run dev
+# 브라우저는 http://localhost:5173/ 로 접속(8765가 아님)
+```
+
+> 개발 모드 프록시 대상은 `web/vite.config.ts`에 `127.0.0.1:8765`로 고정돼 있습니다.
+> 백엔드를 `--port`로 다른 포트에 띄우면 `npm run dev` 프록시가 깨지므로, 개발 모드에서는
+> 항상 기본 포트(8765)를 사용하세요.
+
+프론트엔드 테스트: `cd web && npm test`(Vitest, 트리 편집기 순수 로직 검증).
+
+`run-daily`·`show-reports`·`fetch-fundamental`·`validate-config`와 원본 32종 팩터 카탈로그
+자체의 CRUD(생성/수정/삭제)는 GUI 범위에서 제외됩니다(CLI로만 사용).
+
+
+---
+
+## GUI 사용 예제
+
+아래 CLI 예제(삼성전자 퀄리티-밸류 전략)를 **JSON 파일을 직접 다루지 않고** GUI만으로
+그대로 재현하는 절차다. 화면에서 만드는 정의는 내부적으로 CLI 예제와 완전히 동일한
+JSON을 생성해 저장하므로, 백테스트 결과 지표도 CLI 예제와 **소수점까지 동일**하다(실제
+검증 완료 — 거래 8회, 승률 25%, 초과수익률 -11.32%, 아래 표 참고).
+
+### 0. GUI 실행
+
+```bash
+cd web && npm install && npm run build && cd ..
+uv run python -m quant_krx serve-gui
+```
+
+브라우저로 `http://127.0.0.1:8765/`를 연다. 상단 탭: **팩터 · 공식 · 규칙 · 전략 · 백테스트**.
+
+### 1. 팩터 탭 — 사용할 팩터 확인
+
+`per`(밸류에이션, `value` 카테고리)와 `roe_approx`(밸류에이션, `quality` 카테고리) 행을
+찾아 파라미터·출력 컬럼을 확인한다(`show-factor` CLI와 동일 정보, 조회만 가능).
+
+### 2. 공식 탭 — Formula 3종을 트리 편집기로 생성
+
+좌측 "신규 id" 입력 → "새 공식" 클릭 → 이름/버전/출력 컬럼 입력 → **표현식** 트리에서
+편집. 세 개 모두 아래처럼 구성한다(각각 저장 전 "저장 전 검증" 클릭 → 통과 확인 →
+"저장").
+
+| id | 표현식 트리 구성 |
+|---|---|
+| `value_quality_score` | 이항 연산 `/` → 좌항: 팩터 `roe_approx`(컬럼 `roe_approx`) / 우항: 팩터 `per`(컬럼 `per`) |
+| `per_premium_gap` | 이항 연산 `-` → 좌항: 팩터 `per`(컬럼 `per`) / 우항: 상수 `10` |
+| `quality_price_composite` | 이항 연산 `-` → 좌항: **다시 이항 연산** `*`(팩터 `roe_approx` × 상수 `100`) / 우항: 팩터 `per`(컬럼 `per`) |
+
+세 번째(`quality_price_composite`)는 좌항 자리에서 드롭다운을 "이항 연산"으로 바꿔
+한 단계 더 들어가는 **중첩 트리 편집**을 보여준다(팩터/공식트리에서 필요한 만큼
+재귀적으로 반복 가능).
+
+### 3. 규칙 탭 — Rule 2종을 트리 편집기로 생성
+
+| id | 조건 트리 구성 |
+|---|---|
+| `qv_entry` | 최상위를 `AND`로 변경 → "+ 조건 추가"로 3개까지 늘려 각각: ① 좌항 "공식 참조" `value_quality_score` `>` 상수 `0.005`, ② 좌항 "공식 참조" `quality_price_composite` `>` 상수 `-1`, ③ 좌항 팩터 `sma`(window 5) `crosses_above` 우항 팩터 `sma`(window 20) |
+| `qv_exit` | 최상위를 `OR`로 변경 → 2개 조건: ① 좌항 "공식 참조" `per_premium_gap` `>` 상수 `5`, ② 좌항 팩터 `sma`(window 5) `crosses_below` 우항 팩터 `sma`(window 20) |
+
+각각 "저장 전 검증"으로 오류 없음을 확인한 뒤 저장한다.
+
+### 4. 전략 탭 — Strategy 생성
+
+Strategy는 중첩 표현식이 아니라 참조형 정의(팩터/규칙 id 목록)라 트리 편집기 대신
+반복 위젯 폼을 사용한다(JSON 직접 입력 없음). "신규 id"에 `qv_samsung_strategy` 입력
+→ "새 전략" 클릭 후:
+
+- **이름/버전**: "삼성전자 퀄리티-밸류 전략" / `1`
+- **팩터 참조**: "+ 팩터 추가"로 3행을 만들어 각각 드롭다운에서 `per`, `roe_approx`,
+  `sma` 선택(파라미터는 기본값 유지)
+- **대상 종목**: 입력란에 `005930` 입력 후 "추가"
+- **규칙 바인딩**: "초안(규칙 미지정)" 체크 해제 → 진입(entry) 드롭다운에서
+  `qv_entry` 선택 → 청산(exit) 드롭다운에서 `qv_exit` 선택
+
+"저장 전 검증" 클릭 → 통과 확인 → "저장".
+
+### 5. 백테스트 탭 — 실행
+
+- **전략**: `qv_samsung_strategy` 선택
+- **종목**: `005930`
+- **데이터소스**: `fixture`
+- **벤치마크**: `KOSPI`(선택 입력)
+- "백테스트 실행" 클릭
+
+> `fetch-fundamental`을 CLI로 미리 실행할 필요가 없다 — 백테스트 실행 시 필요한
+> 펀더멘털(밸류에이션) 데이터를 자동으로 수집한다(CLI의 `strategy-backtest`와 동일
+> 내부 로직 공유, `prepare_backtest_data()`).
+
+결과 화면에 아래 지표 요약, 자산곡선(equity curve) 차트, 거래 내역(8건) 표가 즉시
+표시된다. CLI 예제와 완전히 동일한 값이다.
+
+| 지표 | 값 |
+|---|---|
+| 총수익률 | -5.64% |
+| MDD | 22.39% |
+| Sharpe | -0.249 |
+| 승률 | 25.00% |
+| 거래 횟수 | 8 |
+| 벤치마크 수익률(KOSPI) | 5.69% |
+| 초과수익률 | -11.32% |
+
+---
