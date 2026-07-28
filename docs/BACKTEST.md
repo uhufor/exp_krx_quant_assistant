@@ -5,6 +5,7 @@
 | 관련 문서 | 내용 |
 |---|---|
 | [전략 정의](STRATEGY.md) | 백테스트할 전략을 먼저 만들기 |
+| [OOS 검증](VALIDATION.md) | 이 성과가 과최적화인지 가리기 |
 | [포트폴리오](PORTFOLIO.md) | 자본 공유 다종목 백테스트·리밸런싱 |
 | [GUI](GUI.md) | 화면에서 실행하고 자산 곡선·거래내역 보기 |
 
@@ -94,3 +95,17 @@ uv run python -m quant_krx strategy-backtest my_strategy --no-cache
 
 `krx_dart`는 `.env`에 `KRX_ID`/`KRX_PW`(밸류에이션), `DART_API_KEY`(재무제표)가 필요합니다.
 자세한 설정은 [시작하기](GETTING_STARTED.md)를 참고하세요.
+
+---
+
+## 이 성과를 믿어도 되나
+
+단일 구간 백테스트는 숫자를 하나 줄 뿐, 그 숫자가 미래에도 재현될지는 말해주지 않습니다.
+파라미터를 몇 번 바꿔 좋은 값을 고른 순간 전 구간이 사실상 인샘플이 됩니다.
+
+학습/검증 구간을 나눠 돌리고 과최적화 신호를 확인하려면 **[OOS 검증](VALIDATION.md)** 을
+참고하세요.
+
+```bash
+uv run python -m quant_krx validation-run my_strategy --mode holdout --data-source fixture
+```

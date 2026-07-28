@@ -15,6 +15,7 @@ from quant_krx.api.routers import (
     screenings,
     strategies,
     templates,
+    validations,
 )
 
 # src/quant_krx/api/app.py -> parents[3] == 저장소 루트(web/dist가 위치하는 곳)
@@ -38,6 +39,7 @@ def create_app() -> FastAPI:
     app.include_router(strategies.router, prefix="/api/strategies", tags=["strategies"])
     app.include_router(templates.router, prefix="/api/templates", tags=["templates"])
     app.include_router(backtests.router, prefix="/api/backtests", tags=["backtests"])
+    app.include_router(validations.router, prefix="/api/validations", tags=["validations"])
 
     # 프로덕션 빌드(web/dist)가 있으면 정적 파일로 서빙(SPA 라우팅 대응 html=True).
     # /api/* 라우터를 모두 등록한 뒤 마지막에 "/" 마운트해야 API 경로가 우선 매칭된다.

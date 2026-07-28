@@ -28,8 +28,19 @@ from quant_krx.workspace.fingerprint import (
     definition_fingerprint,
     params_fingerprint,
 )
-from quant_krx.workspace.persistence import build_run_record, restore_report
+from quant_krx.workspace.persistence import (
+    build_run_record,
+    build_validation_record,
+    restore_report,
+    restore_validation_report,
+)
 from quant_krx.workspace.templates import BUILTIN_TEMPLATES, StrategyBundle, TemplateInfo
+from quant_krx.workspace.validation import (
+    ProgressCallback,
+    ValidationReport,
+    ValidationSpec,
+    run_validation,
+)
 
 _Entity = TypeVar("_Entity", Formula, Rule, StrategyDefinition)
 
@@ -324,6 +335,71 @@ class WorkspaceService:
 
     def delete_backtest_run(self, run_id: str) -> None:
         self._db.delete_backtest_run(run_id)
+
+    # --- OOS/워크포워드 검증 (P4) ---
+
+    def validate_oos(
+        self,
+        strategy_id: str,
+        *,
+        data: dict[str, FactorInput],
+        spec: ValidationSpec,
+        start: date,
+        end: date,
+        fees: float,
+        slippage: float,
+        benchmark: pd.DataFrame | None = None,
+        data_source: str = "",
+        benchmark_symbol: str | None = None,
+        now: datetime | None = None,
+        resolve_universe: UniverseResolver | None = None,
+        on_progress: ProgressCallback | None = None,
+    ) -> ValidationReport:
+        """전략을 학습/검증 구간으로 나눠 검증하고 결과를 `validation_runs`에 기록한다.
+
+        내부 (그리드 × 폴드) 백테스트는 `backtest_runs`에 기록하지 **않는다** — 검증 부산물이
+        사용자가 의도적으로 돌린 백테스트 이력을 파묻지 않게 하기 위함이다
+        (`storage/validation_schema.py` 주석 참고).
+        """
+        defn = self._require_runnable_and_valid(strategy_id)
+        report = run_validation(
+            defn, data,
+            spec=spec, start=start, end=end,
+            fees=fees, slippage=slippage, benchmark=benchmark,
+            resolve_formula=self.get_formula, resolve_rule=self.get_rule,
+            resolve_universe=resolve_universe, on_progress=on_progress, now=now,
+        )
+        self._db.insert_validation_run(
+            build_validation_record(
+                report,
+                params={
+                    "symbols": sorted(data.keys()),
+                    "start": start.isoformat(),
+                    "end": end.isoformat(),
+                    "fees": fees,
+                    "slippage": slippage,
+                    "data_source": data_source,
+                    "benchmark": benchmark_symbol,
+                },
+            )
+        )
+        return report
+
+    def list_validation_runs(
+        self, *, strategy_id: str | None = None, limit: int = 50
+    ) -> list[dict]:
+        return self._db.list_validation_runs(strategy_id=strategy_id, limit=limit)
+
+    def get_validation_run(self, validation_id: str) -> ValidationReport | None:
+        record = self._db.get_validation_run(validation_id)
+        return restore_validation_report(record) if record is not None else None
+
+    def get_validation_run_record(self, validation_id: str) -> dict | None:
+        """복원된 리포트가 아니라 저장 원본이 필요할 때(실행 파라미터 표시용)."""
+        return self._db.get_validation_run(validation_id)
+
+    def delete_validation_run(self, validation_id: str) -> None:
+        self._db.delete_validation_run(validation_id)
 
     # --- Template (FR-19/20/21) ---
 

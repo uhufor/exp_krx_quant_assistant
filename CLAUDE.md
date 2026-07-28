@@ -52,6 +52,8 @@ uv run python -m quant_krx fetch-fundamental --provider fixture  # 펀더멘털 
 uv run python -m quant_krx formula-create / rule-create / strategy-create <file.json|->
 uv run python -m quant_krx strategy-backtest <id> --data-source fixture [--no-cache]
 uv run python -m quant_krx backtest-list / backtest-show <run_id> / backtest-compare <id> <id>
+uv run python -m quant_krx validation-run <id> [--spec spec.json] [--mode holdout|walkforward]
+uv run python -m quant_krx validation-list / validation-show <validation_id>
 uv run python -m quant_krx strategy-activate / strategy-deactivate <id>
 uv run python -m quant_krx strategy-export / strategy-import   # 전이 참조 포함 JSON 번들
 uv run python -m quant_krx screen-create / screen-validate / screen-run <id> --as-of <date>
@@ -59,7 +61,7 @@ uv run python -m quant_krx serve-gui                 # http://127.0.0.1:8765 (AP
 ```
 
 CLI는 총 40여 개 커맨드(`__main__.py`)이며 접두사로 계층이 갈린다: `formula-*` / `rule-*` /
-`strategy-*` / `screen-*`. GUI는 동일 서비스 계층(`WorkspaceService`, `ScreeningService`)을
+`strategy-*` / `screen-*` / `validation-*`. GUI는 동일 서비스 계층(`WorkspaceService`, `ScreeningService`)을
 `api/routers/`를 통해 소비하므로 CLI·GUI 결과는 항상 일치해야 한다.
 
 **Python 3.10 필수** (`vectorbt`가 `python_requires="<3.11"` 제약). `.python-version` 참고.
@@ -125,7 +127,7 @@ period_end desc)` 정렬 후 그룹 최상단 선택)가 담당하며, 수집 �
 - `Signal` → DuckDB `signals` 저장 → `ReportARenderer`(결정론적) + `ReportBRenderer`(LLM)
 - `RenderedReport` → DuckDB `reports` 저장 → `TelegramNotifier.send()` → `notification_outbox`
 
-### DuckDB 스키마 (18개 테이블, `Database.connect()`에서 모두 실행)
+### DuckDB 스키마 (19개 테이블, `Database.connect()`에서 모두 실행)
 
 | 그룹 | 파일 | 테이블 |
 |---|---|---|
@@ -136,6 +138,7 @@ period_end desc)` 정렬 후 그룹 최상단 선택)가 담당하며, 수집 �
 | 스크리닝 | `data/screening_schema.py` | `screening_conditions` (조건 정의) |
 | 스크리닝 캐시 | `data/screening_cache_schema.py` | `screening_result_cache` (P2 — 동적 유니버스 반복 실행 비용 절감용) |
 | 백테스트 이력 | `storage/backtest_schema.py` | `backtest_runs` (P3 — 파라미터·지표·자산곡선, 거래내역은 미저장) |
+| 검증 이력 | `storage/validation_schema.py` | `validation_runs` (P4 — 폴드별 IS/OOS + 과최적화 요약, 캐시 키 없음) |
 
 스키마 진화는 **additive만** — 신규 테이블 추가는 되고 기존 DDL 변경은 금지(공통 불변식 6).
 `strategy_runs`는 데일리 전용이고, `strategy-backtest`/GUI 백테스트 결과는 `backtest_runs`에
@@ -194,6 +197,24 @@ provider를 통해 조회한다** — 예전에는 `screening/universe.py`가 py
 EPIC-03 D5(결과 미저장)를 반복 백테스트 비용 때문에 완화한 것이며, 조건 수정 시 해시가 바뀌어
 자동 무효화되고 조건 삭제 시 함께 지워진다.
 
+**OOS/워크포워드 검증(P4)**: `workspace/validation.py`가 폴드마다 **학습 구간에서만** 그리드를
+돌려 목적함수 최댓값 파라미터를 고르고 **검증 구간에서 그 파라미터로만** 성과를 잰다. 폴드
+분할은 `workspace/walkforward.py`(순수, 달력 기준, `train_end = test_start - 1일`로 무중첩),
+파라미터 오버레이는 `workspace/overlay.py`(순수)다. 네 가지가 설계상 중요하다.
+① **저장된 정의를 절대 건드리지 않는다** — 파생 `StrategyDefinition` + `resolve_rule`/
+`resolve_formula` 래퍼를 메모리에서만 만든다(활성 참조 보호와 충돌하지 않게).
+② **팩터 파라미터는 `factor_refs`만 바꿔서는 반영되지 않는다** — 실행 시 실제로 쓰이는 값은
+Rule/Formula 피연산자와 `portfolio.ranking`에 적힌 것이라(`_eval_factor_operand`) 리졸버 쪽까지
+같이 덮어써야 한다. 안 그러면 저장은 되는데 계산은 그대로인 **조용한 무효 스윕**이 된다.
+③ **`factor.<id>@<현재값>.<param>` 선택자**가 있는 이유는 골든크로스처럼 같은 팩터를 두 번
+쓰는 전략에서 선택자 없이 스윕하면 단기·장기 창이 같아져 신호가 영영 발생하지 않기 때문이다.
+④ **폴드 내부 실행은 `backtest_runs`에 기록하지 않는다**(그리드×폴드만큼 쌓이면 사용자 이력이
+파묻힘) — 검증 1회 = `validation_runs` 1행. 검증에는 캐시가 없다(비싸고 명시적인 작업이라
+조용한 캐시 히트가 더 혼란스럽다). 데이터는 전 구간을 한 번만 조립하고 폴드는 `start`/`end`로만
+자른다 — 팩터가 전 구간에서 계산된 뒤 잘린 인덱스로 정렬되므로(`numeric.align`) **워밍업 손실이
+없다**. 임계값 스윕은 단일 Predicate 룰만 허용하고 AND/OR 결합 룰은 거부한다(어느 상수인지
+모호한 채 통과하면 결과 전체가 거짓이 된다). 상세는 `docs/VALIDATION.md`.
+
 **스키마 마이그레이션**: `Database._ensure_schema()`는 누락 테이블이 있을 때만 DDL을 실행한다
 (요청마다 커넥션을 여는 GUI에서 동시 `CREATE TABLE`이 DuckDB 카탈로그 write-write 충돌을
 일으켰기 때문). 따라서 **기존 테이블에 컬럼을 추가할 때는 `CREATE TABLE` 수정이 아니라
@@ -230,6 +251,7 @@ EPIC-03 D5(결과 미저장)를 반복 백테스트 비용 때문에 완화한 �
 (`.omc/specs`는 작업용 임시 산출물). R01=팩터 플랫폼+선언형 코어+워크스페이스, R02=GUI,
 R03=노코드 스크리닝, R04=펀더멘털 증분 수집+팩터 순위 스크리닝,
 R05=데일리 포트폴리오 리밸런싱 권고(`roadmap/EPIC_R05/DESIGN-R05-DAILY_PORTFOLIO.md`).
+P4=OOS/워크포워드 검증(`docs/VALIDATION.md`).
 차기 과제(P3 백테스트 이력 영속 → P1 포트폴리오 백테스트 → P2 스크리닝→유니버스 연결)와
 그 근거·미결 결정 사항은 **`roadmap/BACKLOG.md`** 참고 — 새 세션에서 플랫폼 작업을 시작할 때
 여기부터 읽는다.

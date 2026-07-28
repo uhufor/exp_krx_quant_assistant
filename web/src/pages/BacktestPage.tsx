@@ -20,6 +20,7 @@ import { IconAlertCircle, IconPlayerPlay } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
 import { api, ApiError } from '../api/client'
 import { BacktestHistoryPanel } from './BacktestHistoryPanel'
+import { ValidationPanel } from './ValidationPanel'
 
 type Metrics = {
   total_return: number
@@ -496,6 +497,15 @@ export function BacktestPage() {
       )}
 
       <BacktestHistoryPanel strategyId={strategyId} refreshKey={historyKey} />
+
+      <ValidationPanel
+        strategyId={strategyId}
+        symbols={symbols}
+        start={start}
+        end={end}
+        dataSource={dataSource}
+        benchmark={benchmark}
+      />
     </Stack>
   )
 }

@@ -21,6 +21,14 @@ from quant_krx.workspace.serialization import (
     serialize_equity_curve,
     serialize_metrics,
 )
+from quant_krx.workspace.validation import (
+    Candidate,
+    FoldResult,
+    ValidationReport,
+    ValidationSpec,
+    ValidationSummary,
+)
+from quant_krx.workspace.walkforward import Fold
 
 
 def serialize_curves(report: BacktestReport) -> dict[str, dict[str, Any]]:
@@ -107,4 +115,87 @@ def restore_report(record: dict[str, Any]) -> BacktestReport:
         from_cache=True,
         is_portfolio=bool(record.get("is_portfolio", False)),
         weights=dict(record.get("weights") or {}),
+    )
+
+
+# --- 검증 실행 이력(P4) ---
+
+
+def build_validation_record(
+    report: ValidationReport, *, params: dict[str, Any]
+) -> dict[str, Any]:
+    """ValidationReport -> validation_runs 행 딕셔너리.
+
+    폴드별 검증 자산곡선은 보존한다(합성 OOS 곡선을 다시 그리려면 필요). 학습 구간 곡선과
+    거래내역은 저장하지 않는다 — backtest_runs와 같은 판단으로, 재실행으로 재생성 가능하고
+    용량만 크다.
+    """
+    return {
+        "validation_id": report.validation_id,
+        "strategy_id": report.strategy_id,
+        "spec": report.spec.to_dict(),
+        "params": params,
+        "summary": report.summary.to_dict(),
+        "folds": [_serialize_fold(f) for f in report.folds],
+        "oos_equity": serialize_equity_curve(report.oos_equity),
+        "executed_at": report.executed_at,
+    }
+
+
+def _serialize_fold(fold: FoldResult) -> dict[str, Any]:
+    return {
+        "fold": fold.fold.to_dict(),
+        "params": dict(fold.params),
+        "train_metrics": (
+            serialize_metrics(fold.train_metrics) if fold.train_metrics is not None else None
+        ),
+        "test_metrics": (
+            serialize_metrics(fold.test_metrics) if fold.test_metrics is not None else None
+        ),
+        "test_equity": serialize_equity_curve(fold.test_equity),
+        "candidates": [c.to_dict() for c in fold.candidates],
+        "error": fold.error,
+    }
+
+
+def _restore_fold(raw: dict[str, Any]) -> FoldResult:
+    return FoldResult(
+        fold=Fold.from_dict(raw["fold"]),
+        params=dict(raw.get("params") or {}),
+        train_metrics=(
+            deserialize_metrics(raw["train_metrics"]) if raw.get("train_metrics") else None
+        ),
+        test_metrics=(
+            deserialize_metrics(raw["test_metrics"]) if raw.get("test_metrics") else None
+        ),
+        test_equity=deserialize_equity_curve(raw.get("test_equity") or []),
+        candidates=tuple(
+            Candidate(
+                params=dict(c.get("params") or {}),
+                objective=_nan_if_none(c.get("objective")),
+                total_return=_nan_if_none(c.get("total_return")),
+                mdd=_nan_if_none(c.get("mdd")),
+                trade_count=int(c.get("trade_count") or 0),
+                error=c.get("error", ""),
+            )
+            for c in raw.get("candidates") or []
+        ),
+        error=raw.get("error", ""),
+    )
+
+
+def _nan_if_none(value: Any) -> float:
+    return float("nan") if value is None else float(value)
+
+
+def restore_validation_report(record: dict[str, Any]) -> ValidationReport:
+    """validation_runs 행 -> ValidationReport 복원(CLI/GUI가 신규 실행과 동일하게 소비)."""
+    return ValidationReport(
+        validation_id=record["validation_id"],
+        strategy_id=record["strategy_id"],
+        spec=ValidationSpec.from_dict(record["spec"]),
+        folds=tuple(_restore_fold(f) for f in record["folds"]),
+        summary=ValidationSummary.from_dict(record["summary"]),
+        oos_equity=deserialize_equity_curve(record.get("oos_equity") or []),
+        executed_at=record["executed_at"],
     )
